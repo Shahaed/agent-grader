@@ -11,11 +11,13 @@ import type {
 
 const LEGACY_DATA_ROOT = path.join(process.cwd(), ".data");
 const DEFAULT_DATA_ROOT = path.join(os.homedir(), ".agent-grader-data");
+const VERCEL_DATA_ROOT = path.join(os.tmpdir(), "agent-grader-data");
 const DATA_ROOT =
   process.env.AGENT_GRADER_DATA_DIR ||
+  (process.env.VERCEL ? VERCEL_DATA_ROOT :
   (existsSync(LEGACY_DATA_ROOT) && !existsSync(DEFAULT_DATA_ROOT)
     ? LEGACY_DATA_ROOT
-    : DEFAULT_DATA_ROOT);
+    : DEFAULT_DATA_ROOT));
 const ASSIGNMENTS_ROOT = path.join(DATA_ROOT, "assignments");
 
 function assignmentDir(assignmentId: string) {
