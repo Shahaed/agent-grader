@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import { updateResultFeedback } from "@/lib/grading-service";
@@ -8,6 +9,12 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ assignmentId: string; submissionId: string }> },
 ) {
+  const { isAuthenticated, userId } = await auth();
+
+  if (!isAuthenticated || !userId) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  }
+
   try {
     const { assignmentId, submissionId } = await context.params;
     const body = (await request.json()) as {
@@ -36,4 +43,3 @@ export async function PATCH(
     );
   }
 }
-

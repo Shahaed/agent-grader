@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import { runCalibrationPass } from "@/lib/grading-service";
@@ -8,6 +9,12 @@ export async function POST(
   _request: Request,
   context: { params: Promise<{ assignmentId: string }> },
 ) {
+  const { isAuthenticated, userId } = await auth();
+
+  if (!isAuthenticated || !userId) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  }
+
   try {
     const { assignmentId } = await context.params;
     const calibration = await runCalibrationPass(assignmentId);
@@ -21,4 +28,3 @@ export async function POST(
     );
   }
 }
-
