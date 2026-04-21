@@ -1,14 +1,14 @@
 ## Agent Grader
 
-Prototype for rubric-aware short assignment and essay grading built with Next.js and the OpenAI Node SDK.
+Prototype for rubric-aware written submission grading built with Next.js and the OpenAI Node SDK.
 
 The core design matches the grading constraints in the product brief:
 
 - Assignment context is persistent.
-- Each submission is graded in its own isolated Responses API run.
-- Shared prompt, rubric, and readings are separated from student-specific essay input.
+- Each prompt response is graded in its own isolated Responses API run.
+- Shared prompt set, rubric, and readings are separated from student-specific submission input.
 - File search is limited to assignment-level assets through metadata filters.
-- Calibration is a later optional pass over structured grading results.
+- Prompt-level segmentation happens before grading and is stored with the result.
 
 ## Stack
 
@@ -43,9 +43,9 @@ Optional model overrides:
 
 ```bash
 OPENAI_RUBRIC_MODEL=gpt-5.4-mini
+OPENAI_SEGMENTATION_MODEL=gpt-5.4-mini
 OPENAI_GRADING_MODEL=gpt-5.4
 OPENAI_FEEDBACK_MODEL=gpt-5.4-mini
-OPENAI_CALIBRATION_MODEL=gpt-5.4-mini
 ```
 
 Optional development settings:
@@ -77,14 +77,13 @@ Open [http://localhost:3000](http://localhost:3000).
 1. Create an assignment.
 2. Upload a rubric and optional readings.
 3. Review the normalized rubric JSON and edit it if needed.
-4. Upload a batch of essays.
-5. The server grades each essay independently.
-6. Review structured results and edit feedback.
-7. Optionally run the calibration pass.
+4. Upload a batch of written submissions.
+5. The server segments each file by prompt, then grades each prompt independently.
+6. Review structured prompt-level and overall results, then edit feedback.
 
 ## Persistence
 
-- Assignments, uploaded files, results, and calibration summaries are stored in `~/.agent-grader-data/assignments/` by default.
+- Assignments, uploaded files, and results are stored in `~/.agent-grader-data/assignments/` by default.
 - This is intentionally outside the project directory so local runtime writes do not interfere with the Next.js dev workspace.
 - This is a local prototype storage layer, not a production database.
 

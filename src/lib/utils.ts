@@ -1,4 +1,9 @@
-import type { CourseLevel, LevelProfile, NormalizedRubric } from "@/lib/types";
+import type {
+  CourseLevel,
+  LevelProfile,
+  NormalizedRubric,
+  RubricDimension,
+} from "@/lib/types";
 
 export function slugify(value: string) {
   return value
@@ -47,8 +52,12 @@ export function inferLevelProfile(
   return "high_school_argument" satisfies LevelProfile;
 }
 
+export function sumDimensionScale(dimensions: RubricDimension[]) {
+  return dimensions.reduce((total, dimension) => total + dimension.scaleMax, 0);
+}
+
 export function sumRubricScale(rubric: NormalizedRubric) {
-  return rubric.dimensions.reduce((total, dimension) => total + dimension.scaleMax, 0);
+  return sumDimensionScale(rubric.dimensions);
 }
 
 export function clamp(value: number, min: number, max: number) {
@@ -98,9 +107,14 @@ export function splitIntoEvidenceSpans(text: string) {
       .join("\n");
   });
 
+  const taggedText = taggedParagraphs.join("\n\n");
   return {
     spanLookup,
-    taggedEssay: taggedParagraphs.join("\n\n"),
+    taggedText,
+    taggedEssay: taggedText,
   };
 }
 
+export function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}

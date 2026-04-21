@@ -13,7 +13,15 @@ export type AssetType =
   | "prompt"
   | "reading"
   | "anchor"
-  | "essay";
+  | "submission";
+
+export type PromptType =
+  | "essay"
+  | "long_answer"
+  | "short_answer"
+  | "written_response";
+
+export type RubricScope = "global" | "prompt";
 
 export interface CourseProfile {
   courseName: string;
@@ -22,10 +30,20 @@ export interface CourseProfile {
   teacherPreferences: string;
 }
 
+export interface AssignmentPrompt {
+  id: string;
+  title: string;
+  type: PromptType;
+  instructions: string;
+  citationExpectations?: string | null;
+  maxScore?: number | null;
+  order: number;
+}
+
 export interface AssignmentProfile {
-  essayPrompt: string;
   assignmentType: string;
   citationExpectations: string;
+  promptSet: AssignmentPrompt[];
 }
 
 export interface RubricBand {
@@ -43,6 +61,8 @@ export interface RubricDimension {
   scaleMax: number;
   descriptor?: string | null;
   bands: RubricBand[];
+  scope: RubricScope;
+  promptIds: string[];
 }
 
 export interface NormalizedRubric {
@@ -66,7 +86,9 @@ export interface StoredAsset {
 }
 
 export interface AssignmentRecord {
+  schemaVersion: 2;
   id: string;
+  assignmentName: string;
   createdAt: string;
   updatedAt: string;
   courseProfile: CourseProfile;
@@ -99,37 +121,50 @@ export interface ReviewDecision {
   reasons: string[];
 }
 
-export interface GradingResultRecord {
-  submissionId: string;
-  submissionName: string;
-  createdAt: string;
+export interface SubmissionSegment {
+  promptId: string;
+  promptTitle: string;
+  promptType: PromptType;
+  answerText: string;
+  taggedAnswer: string;
+  sourceEvidenceSpans: string[];
+  sourceEvidenceLookup: Record<string, string>;
+  evidenceLookup: Record<string, string>;
+  segmentationConfidence: number;
+  isMissing: boolean;
+  notes: string[];
+}
+
+export interface PromptGradingResult {
+  promptId: string;
+  promptTitle: string;
+  promptType: PromptType;
   overallScore: number;
   scaleMax: number;
   confidence: number;
   dimensions: GradedDimension[];
   review: ReviewDecision;
   feedback: GradingFeedback;
-  evidenceLookup: Record<string, string>;
+  segment: SubmissionSegment;
   retrievalSources: string[];
-  sourceAsset: StoredAsset;
 }
 
-export interface CalibrationFlag {
+export interface GradingResultRecord {
+  schemaVersion: 2;
   submissionId: string;
   submissionName: string;
-  reasons: string[];
-  recommendation: string;
-}
-
-export interface CalibrationRecord {
   createdAt: string;
-  batchSummary: string;
-  patterns: string[];
-  flaggedSubmissions: CalibrationFlag[];
+  overallScore: number;
+  scaleMax: number;
+  confidence: number;
+  promptResults: PromptGradingResult[];
+  review: ReviewDecision;
+  feedback: GradingFeedback;
+  retrievalSources: string[];
+  sourceAsset: StoredAsset;
 }
 
 export interface AssignmentBundle {
   assignment: AssignmentRecord;
   results: GradingResultRecord[];
-  calibration?: CalibrationRecord;
 }

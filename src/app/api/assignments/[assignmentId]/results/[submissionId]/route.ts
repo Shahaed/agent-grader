@@ -22,15 +22,43 @@ export async function PATCH(
         teacherSummary?: string;
         studentFeedback?: string[];
       };
+      promptFeedback?: Array<{
+        promptId?: string;
+        feedback?: {
+          teacherSummary?: string;
+          studentFeedback?: string[];
+        };
+      }>;
     };
 
     if (!body.feedback?.teacherSummary || !body.feedback.studentFeedback?.length) {
       throw new Error("Feedback must include a teacher summary and student feedback.");
     }
 
+    const promptFeedback = (body.promptFeedback || []).map((entry) => {
+      if (
+        !entry.promptId ||
+        !entry.feedback?.teacherSummary ||
+        !entry.feedback.studentFeedback?.length
+      ) {
+        throw new Error("Each prompt feedback entry must be complete.");
+      }
+
+      return {
+        promptId: entry.promptId,
+        feedback: {
+          teacherSummary: entry.feedback.teacherSummary,
+          studentFeedback: entry.feedback.studentFeedback,
+        },
+      };
+    });
+
     const result = await updateResultFeedback(assignmentId, submissionId, {
-      teacherSummary: body.feedback.teacherSummary,
-      studentFeedback: body.feedback.studentFeedback,
+      feedback: {
+        teacherSummary: body.feedback.teacherSummary,
+        studentFeedback: body.feedback.studentFeedback,
+      },
+      promptFeedback,
     });
 
     return NextResponse.json({ result });

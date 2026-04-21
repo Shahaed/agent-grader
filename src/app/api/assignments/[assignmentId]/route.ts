@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-import { updateAssignmentRubric } from "@/lib/assignment-service";
+import { updateAssignmentConfig } from "@/lib/assignment-service";
 import { loadAssignmentBundle } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
@@ -33,19 +33,25 @@ export async function PATCH(
 
   try {
     const { assignmentId } = await context.params;
-    const body = (await request.json()) as { rubricJson?: string };
+    const body = (await request.json()) as {
+      promptsJson?: string;
+      rubricJson?: string;
+    };
 
-    if (!body.rubricJson) {
-      throw new Error("Missing rubricJson.");
+    if (!body.promptsJson || !body.rubricJson) {
+      throw new Error("Missing promptsJson or rubricJson.");
     }
 
-    await updateAssignmentRubric(assignmentId, body.rubricJson);
+    await updateAssignmentConfig(assignmentId, {
+      promptsJson: body.promptsJson,
+      rubricJson: body.rubricJson,
+    });
     const bundle = await loadAssignmentBundle(assignmentId);
     return NextResponse.json(bundle);
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Failed to update rubric.",
+        error: error instanceof Error ? error.message : "Failed to update assignment.",
       },
       { status: 400 },
     );

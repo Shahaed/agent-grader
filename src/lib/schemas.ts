@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+export const assignmentPromptSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  type: z.enum(["essay", "long_answer", "short_answer", "written_response"]),
+  instructions: z.string().min(1),
+  citationExpectations: z.string().nullable().optional(),
+  maxScore: z.number().positive().nullable().optional(),
+  order: z.number().int().nonnegative(),
+});
+
+export const promptSetSchema = z.array(assignmentPromptSchema).min(1);
+
 export const normalizedRubricSchema = z.object({
   rubricId: z.string().min(1),
   gradingMode: z.enum(["analytic", "holistic"]),
@@ -23,6 +35,8 @@ export const normalizedRubricSchema = z.object({
             }),
           )
           .min(1),
+        scope: z.enum(["global", "prompt"]).default("global"),
+        promptIds: z.array(z.string().min(1)).default([]),
       }),
     )
     .min(1),
@@ -30,8 +44,13 @@ export const normalizedRubricSchema = z.object({
   notes: z.string().nullable(),
 });
 
+export const assignmentAnalysisSchema = z.object({
+  promptSet: promptSetSchema,
+  normalizedRubric: normalizedRubricSchema,
+});
+
 export const gradingOutputSchema = z.object({
-  submissionId: z.string().min(1),
+  promptId: z.string().min(1),
   overallScore: z.number().nonnegative(),
   scaleMax: z.number().positive(),
   confidence: z.number().min(0).max(1),
@@ -54,20 +73,29 @@ export const gradingOutputSchema = z.object({
   }),
 });
 
+export const segmentationOutputSchema = z.object({
+  submissionId: z.string().min(1),
+  overallConfidence: z.number().min(0).max(1),
+  unmatchedText: z.string().default(""),
+  review: z.object({
+    needsHumanReview: z.boolean(),
+    reasons: z.array(z.string()).default([]),
+  }),
+  segments: z
+    .array(
+      z.object({
+        promptId: z.string().min(1),
+        answerText: z.string().default(""),
+        evidenceSpans: z.array(z.string()).default([]),
+        segmentationConfidence: z.number().min(0).max(1),
+        isMissing: z.boolean(),
+        notes: z.array(z.string()).default([]),
+      }),
+    )
+    .min(1),
+});
+
 export const feedbackOutputSchema = z.object({
   teacherSummary: z.string().min(1),
   studentFeedback: z.array(z.string().min(1)).min(1).max(6),
-});
-
-export const calibrationOutputSchema = z.object({
-  batchSummary: z.string().min(1),
-  patterns: z.array(z.string().min(1)).default([]),
-  flaggedSubmissions: z.array(
-    z.object({
-      submissionId: z.string().min(1),
-      submissionName: z.string().min(1),
-      reasons: z.array(z.string().min(1)).default([]),
-      recommendation: z.string().min(1),
-    }),
-  ),
 });
