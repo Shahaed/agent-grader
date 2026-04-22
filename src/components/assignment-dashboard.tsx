@@ -30,21 +30,66 @@ import {
   type RubricFormDraft,
 } from "./dashboard-shared";
 
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+type ViewState = "index" | "create" | "review";
+
 interface AssignmentDashboardProps {
   hasOpenAIKey: boolean;
   initialAssignments: AssignmentBundle[];
 }
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   if (toIndex < 0 || toIndex >= items.length) {
     return items;
   }
-
   const next = [...items];
   const [item] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, item);
   return next;
 }
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Icons                                                              */
+/* ------------------------------------------------------------------ */
+
+function PlusIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  PromptSetEditor                                                    */
+/* ------------------------------------------------------------------ */
 
 function PromptSetEditor({
   prompts,
@@ -60,18 +105,34 @@ function PromptSetEditor({
   description: string;
 }) {
   return (
-    <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
+    <div
+      style={{
+        background: "var(--paper)",
+        border: "1px solid var(--line)",
+        borderRadius: "var(--radius-lg)",
+        padding: "22px",
+      }}
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-          <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+          <h3 className="card-title">{title}</h3>
+          <p
+            style={{
+              marginTop: "6px",
+              fontSize: "14px",
+              lineHeight: "1.6",
+              color: "var(--ink-2)",
+            }}
+          >
+            {description}
+          </p>
         </div>
         <button
           type="button"
           onClick={() =>
             onChange((current) => [...current, emptyPromptDraft()])
           }
-          className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
+          className="btn btn-secondary"
         >
           Add prompt
         </button>
@@ -81,14 +142,29 @@ function PromptSetEditor({
         {prompts.map((prompt, promptIndex) => (
           <div
             key={prompt.id}
-            className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+            style={{
+              background: "var(--paper)",
+              border: "1px solid var(--line)",
+              borderRadius: "var(--radius)",
+              padding: "16px",
+            }}
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-sm font-semibold text-slate-900">
-                  Prompt {promptIndex + 1}
+                <div
+                  className="serif text-[28px] italic"
+                  style={{ color: "var(--accent)" }}
+                >
+                  {promptIndex + 1}
                 </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
+                <p
+                  style={{
+                    marginTop: "4px",
+                    fontSize: "12px",
+                    lineHeight: "1.5",
+                    color: "var(--ink-3)",
+                  }}
+                >
                   Each prompt becomes its own segmented and graded response
                   unit.
                 </p>
@@ -101,7 +177,7 @@ function PromptSetEditor({
                       moveItem(current, promptIndex, promptIndex - 1),
                     )
                   }
-                  className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-950"
+                  className="btn btn-ghost btn-sm"
                 >
                   Up
                 </button>
@@ -112,7 +188,7 @@ function PromptSetEditor({
                       moveItem(current, promptIndex, promptIndex + 1),
                     )
                   }
-                  className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-950"
+                  className="btn btn-ghost btn-sm"
                 >
                   Down
                 </button>
@@ -125,7 +201,7 @@ function PromptSetEditor({
                         : current.filter((entry) => entry.id !== prompt.id),
                     )
                   }
-                  className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-rose-300 hover:text-rose-700"
+                  className="btn btn-ghost btn-sm"
                 >
                   Remove
                 </button>
@@ -133,7 +209,14 @@ function PromptSetEditor({
             </div>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <label className="grid gap-2 text-sm font-medium text-slate-700 xl:col-span-2">
+              <label
+                className="grid gap-2 xl:col-span-2"
+                style={{
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  color: "var(--ink-2)",
+                }}
+              >
                 Prompt title
                 <input
                   value={prompt.title}
@@ -146,11 +229,33 @@ function PromptSetEditor({
                       ),
                     )
                   }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
+                  style={{
+                    background: "var(--bg-sunk)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--radius)",
+                    padding: "10px 12px",
+                    fontSize: "13px",
+                    outline: "none",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = "var(--ink)";
+                    e.target.style.background = "var(--paper)";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = "var(--line)";
+                    e.target.style.background = "var(--bg-sunk)";
+                  }}
                   placeholder="Part A: Literary analysis"
                 />
               </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
+              <label
+                className="grid gap-2"
+                style={{
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  color: "var(--ink-2)",
+                }}
+              >
                 Prompt type
                 <select
                   value={prompt.type}
@@ -167,13 +272,35 @@ function PromptSetEditor({
                       ),
                     )
                   }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
+                  style={{
+                    background: "var(--bg-sunk)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--radius)",
+                    padding: "10px 12px",
+                    fontSize: "13px",
+                    outline: "none",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = "var(--ink)";
+                    e.target.style.background = "var(--paper)";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = "var(--line)";
+                    e.target.style.background = "var(--bg-sunk)";
+                  }}
                 >
                   <option value="essay">Essay</option>
                   <option value="short_answer">Short answer</option>
                 </select>
               </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
+              <label
+                className="grid gap-2"
+                style={{
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  color: "var(--ink-2)",
+                }}
+              >
                 Prompt max score
                 <input
                   inputMode="decimal"
@@ -187,13 +314,35 @@ function PromptSetEditor({
                       ),
                     )
                   }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
+                  style={{
+                    background: "var(--bg-sunk)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--radius)",
+                    padding: "10px 12px",
+                    fontSize: "13px",
+                    outline: "none",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = "var(--ink)";
+                    e.target.style.background = "var(--paper)";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = "var(--line)";
+                    e.target.style.background = "var(--bg-sunk)";
+                  }}
                   placeholder="Optional"
                 />
               </label>
             </div>
 
-            <label className="mt-4 grid gap-2 text-sm font-medium text-slate-700">
+            <label
+              className="mt-4 grid gap-2"
+              style={{
+                fontSize: "13px",
+                fontWeight: "500",
+                color: "var(--ink-2)",
+              }}
+            >
               Prompt instructions
               <textarea
                 rows={4}
@@ -207,12 +356,34 @@ function PromptSetEditor({
                     ),
                   )
                 }
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
+                style={{
+                  background: "var(--bg-sunk)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "var(--radius)",
+                  padding: "10px 12px",
+                  fontSize: "13px",
+                  outline: "none",
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = "var(--ink)";
+                  e.target.style.background = "var(--paper)";
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = "var(--line)";
+                  e.target.style.background = "var(--bg-sunk)";
+                }}
                 placeholder="Explain what the student should write for this part."
               />
             </label>
 
-            <label className="mt-4 grid gap-2 text-sm font-medium text-slate-700">
+            <label
+              className="mt-4 grid gap-2"
+              style={{
+                fontSize: "13px",
+                fontWeight: "500",
+                color: "var(--ink-2)",
+              }}
+            >
               Prompt-specific citation expectations
               <textarea
                 rows={2}
@@ -226,7 +397,22 @@ function PromptSetEditor({
                     ),
                   )
                 }
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
+                style={{
+                  background: "var(--bg-sunk)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "var(--radius)",
+                  padding: "10px 12px",
+                  fontSize: "13px",
+                  outline: "none",
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = "var(--ink)";
+                  e.target.style.background = "var(--paper)";
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = "var(--line)";
+                  e.target.style.background = "var(--bg-sunk)";
+                }}
                 placeholder="Optional override for this prompt."
               />
             </label>
@@ -236,6 +422,1548 @@ function PromptSetEditor({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Index view                                                         */
+/* ------------------------------------------------------------------ */
+
+function AssignmentIndexView({
+  assignments,
+  onOpenAssignment,
+  onNewAssignment,
+}: {
+  assignments: AssignmentBundle[];
+  onOpenAssignment: (id: string) => void;
+  onNewAssignment: () => void;
+}) {
+  if (assignments.length === 0) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "80px 20px",
+          textAlign: "center",
+        }}
+      >
+        <p
+          style={{
+            fontSize: "15px",
+            color: "var(--ink-3)",
+            marginBottom: "16px",
+          }}
+        >
+          No assignments yet.
+        </p>
+        <button
+          type="button"
+          onClick={onNewAssignment}
+          className="btn btn-primary"
+        >
+          <PlusIcon size={14} />
+          Create your first assignment
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="assignments-grid">
+      {assignments.map((bundle) => {
+        const { assignment, results } = bundle;
+        const promptCount = assignment.assignmentProfile.promptSet.length;
+        const dimensionCount = assignment.normalizedRubric.dimensions.length;
+        const gradedCount = results.length;
+
+        return (
+          <button
+            type="button"
+            key={assignment.id}
+            className="assignment-card"
+            onClick={() => onOpenAssignment(assignment.id)}
+          >
+            <div className="assignment-card-top">
+              <span className="chip teal">
+                {assignment.assignmentProfile.assignmentType}
+              </span>
+              <span className="chip">
+                {assignment.courseProfile.subject}
+              </span>
+            </div>
+
+            <div className="assignment-card-title">
+              {assignment.assignmentName}
+            </div>
+            <div className="assignment-card-course">
+              {assignment.courseProfile.courseName}
+            </div>
+
+            <div className="assignment-card-stats">
+              <div>
+                <div className="stat-num">{promptCount}</div>
+                <div className="stat-label">Prompts</div>
+              </div>
+              <div>
+                <div className="stat-num">{dimensionCount}</div>
+                <div className="stat-label">Dimensions</div>
+              </div>
+              <div>
+                <div className="stat-num">{gradedCount}</div>
+                <div className="stat-label">Graded</div>
+              </div>
+            </div>
+
+            <div className="assignment-card-footer">
+              <span style={{ fontSize: "11px", color: "var(--ink-3)" }}>
+                created {formatDate(assignment.createdAt)}
+              </span>
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  color: "var(--ink-2)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "2px",
+                }}
+              >
+                Open <ChevronRightIcon size={12} />
+              </span>
+            </div>
+          </button>
+        );
+      })}
+
+      {/* New assignment card */}
+      <button
+        type="button"
+        className="assignment-card new-card"
+        onClick={onNewAssignment}
+      >
+        <PlusIcon size={20} />
+        <span style={{ fontSize: "13px", fontWeight: 500 }}>
+          New assignment
+        </span>
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Create form view                                                   */
+/* ------------------------------------------------------------------ */
+
+function CreateFormView({
+  assignmentForm,
+  setAssignmentForm,
+  hasOpenAIKey,
+  isPending,
+  buttonLabel,
+  onSubmit,
+}: {
+  assignmentForm: AssignmentFormDraft;
+  setAssignmentForm: React.Dispatch<React.SetStateAction<AssignmentFormDraft>>;
+  hasOpenAIKey: boolean;
+  isPending: boolean;
+  buttonLabel: string;
+  onSubmit: (formData: FormData) => void;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--paper)",
+        border: "1px solid var(--line)",
+        borderRadius: "var(--radius-lg)",
+        padding: "22px",
+      }}
+    >
+      <h2 className="card-title">Create Assignment</h2>
+      <p
+        style={{
+          marginTop: "8px",
+          fontSize: "14px",
+          lineHeight: "1.6",
+          color: "var(--ink-2)",
+        }}
+      >
+        Upload the rubric once, give the assignment core metadata, and let
+        the model infer the prompt set and grading structure. If this fails,
+        the exact backend error appears in the diagnostics panel.
+      </p>
+
+      <form action={onSubmit} className="grid gap-5 mt-6">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Assignment name
+            <input
+              required
+              name="assignmentName"
+              value={assignmentForm.assignmentName}
+              onChange={(event) =>
+                setAssignmentForm((current) => ({
+                  ...current,
+                  assignmentName: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+              placeholder="Hamlet close reading"
+            />
+          </label>
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Course name
+            <input
+              required
+              name="courseName"
+              value={assignmentForm.courseName}
+              onChange={(event) =>
+                setAssignmentForm((current) => ({
+                  ...current,
+                  courseName: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+              placeholder="English 11"
+            />
+          </label>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Subject
+            <input
+              required
+              name="subject"
+              value={assignmentForm.subject}
+              onChange={(event) =>
+                setAssignmentForm((current) => ({
+                  ...current,
+                  subject: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+              placeholder="English"
+            />
+          </label>
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Academic level
+            <select
+              name="level"
+              value={assignmentForm.level}
+              onChange={(event) =>
+                setAssignmentForm((current) => ({
+                  ...current,
+                  level: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+            >
+              <option value="high_school">High school</option>
+              <option value="college">College</option>
+              <option value="ap">AP</option>
+              <option value="esl">ESL</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Assignment type
+            <select
+              required
+              name="assignmentType"
+              value={assignmentForm.assignmentType}
+              onChange={(event) =>
+                setAssignmentForm((current) => ({
+                  ...current,
+                  assignmentType: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+            >
+              <option value="Essay">Essay</option>
+              <option value="Short Answers">Short Answers</option>
+            </select>
+          </label>
+        </div>
+
+        <label
+          className="grid gap-2"
+          style={{
+            fontSize: "13px",
+            fontWeight: "500",
+            color: "var(--ink-2)",
+          }}
+        >
+          Rubric file
+          <input
+            required
+            name="rubricFile"
+            type="file"
+            accept=".pdf,.docx,.txt,.md,.csv,.json"
+            style={{
+              border: "1px dashed var(--line)",
+              background: "var(--bg-sunk)",
+              borderRadius: "var(--radius)",
+              padding: "22px",
+              textAlign: "center",
+              fontSize: "13px",
+            }}
+          />
+        </label>
+        <label
+          className="grid gap-2"
+          style={{
+            fontSize: "13px",
+            fontWeight: "500",
+            color: "var(--ink-2)",
+          }}
+        >
+          Readings and source materials
+          <input
+            multiple
+            name="readingFiles"
+            type="file"
+            accept=".pdf,.docx,.txt,.md,.csv,.json"
+            style={{
+              border: "1px dashed var(--line)",
+              background: "var(--bg-sunk)",
+              borderRadius: "var(--radius)",
+              padding: "22px",
+              textAlign: "center",
+              fontSize: "13px",
+            }}
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={isPending || !hasOpenAIKey}
+          className="btn btn-primary"
+          style={{
+            opacity: isPending || !hasOpenAIKey ? "0.5" : "1",
+            cursor: isPending || !hasOpenAIKey ? "not-allowed" : "pointer",
+          }}
+        >
+          {buttonLabel}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Review view                                                        */
+/* ------------------------------------------------------------------ */
+
+function ReviewView({
+  selectedBundle,
+  selectedPromptDrafts,
+  setSelectedPromptDrafts,
+  rubricDraft,
+  setRubricDraft,
+  isPending,
+  buttonLabel,
+  onSave,
+}: {
+  selectedBundle: AssignmentBundle;
+  selectedPromptDrafts: AssignmentPromptDraft[];
+  setSelectedPromptDrafts: React.Dispatch<
+    React.SetStateAction<AssignmentPromptDraft[]>
+  >;
+  rubricDraft: RubricFormDraft;
+  setRubricDraft: React.Dispatch<React.SetStateAction<RubricFormDraft>>;
+  isPending: boolean;
+  buttonLabel: string;
+  onSave: () => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-4">
+        <div className="chip">
+          Assignment: {selectedBundle.assignment.assignmentName}
+        </div>
+        <div className="chip">
+          Level: {selectedBundle.assignment.courseProfile.level}
+        </div>
+        <div className="chip">
+          Prompts: {selectedPromptDrafts.length}
+        </div>
+        <div className="chip">
+          Assets: {selectedBundle.assignment.assets.length}
+        </div>
+      </div>
+
+      <div
+        style={{
+          background: "var(--paper)",
+          border: "1px solid var(--line)",
+          borderRadius: "var(--radius)",
+          padding: "16px",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "13px",
+            fontWeight: "500",
+            color: "var(--ink)",
+          }}
+        >
+          Context summary
+        </div>
+        <pre
+          style={{
+            marginTop: "12px",
+            whiteSpace: "pre-wrap",
+            fontFamily: "monospace",
+            fontSize: "12px",
+            lineHeight: "1.6",
+            color: "var(--ink-2)",
+          }}
+        >
+          {selectedBundle.assignment.contextSummary}
+        </pre>
+      </div>
+
+      <div className="flex gap-3">
+        <Link
+          href="/grading"
+          className="btn btn-secondary"
+        >
+          Open grading workspace
+        </Link>
+        <button
+          type="button"
+          onClick={() => downloadResults(selectedBundle)}
+          className="btn btn-secondary"
+        >
+          Export JSON
+        </button>
+      </div>
+
+      <PromptSetEditor
+        prompts={selectedPromptDrafts}
+        onChange={setSelectedPromptDrafts}
+        title="Editable prompt set"
+        description="These prompts define segmentation and per-prompt grading. Save them together with the rubric."
+      />
+
+      <div
+        style={{
+          background: "var(--paper)",
+          border: "1px solid var(--line)",
+          borderRadius: "var(--radius-lg)",
+          padding: "22px",
+        }}
+      >
+        <h3 className="card-title">Rubric setup</h3>
+        <p
+          style={{
+            marginTop: "6px",
+            fontSize: "14px",
+            lineHeight: "1.6",
+            color: "var(--ink-2)",
+          }}
+        >
+          Edit the structured rubric the model uses during scoring. Each
+          criterion can apply globally or to specific prompts only.
+        </p>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Rubric ID
+            <input
+              value={rubricDraft.rubricId}
+              onChange={(event) =>
+                setRubricDraft((current) => ({
+                  ...current,
+                  rubricId: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+            />
+          </label>
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Grading mode
+            <select
+              value={rubricDraft.gradingMode}
+              onChange={(event) =>
+                setRubricDraft((current) => ({
+                  ...current,
+                  gradingMode: event.target.value as
+                    | "analytic"
+                    | "holistic",
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+            >
+              <option value="analytic">Analytic</option>
+              <option value="holistic">Holistic</option>
+            </select>
+          </label>
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Total rubric scale
+            <input
+              inputMode="decimal"
+              value={rubricDraft.totalScaleMax}
+              onChange={(event) =>
+                setRubricDraft((current) => ({
+                  ...current,
+                  totalScaleMax: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+            />
+          </label>
+          <label
+            className="grid gap-2"
+            style={{
+              fontSize: "13px",
+              fontWeight: "500",
+              color: "var(--ink-2)",
+            }}
+          >
+            Notes
+            <textarea
+              rows={4}
+              value={rubricDraft.notes}
+              onChange={(event) =>
+                setRubricDraft((current) => ({
+                  ...current,
+                  notes: event.target.value,
+                }))
+              }
+              style={{
+                background: "var(--bg-sunk)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 12px",
+                fontSize: "13px",
+                outline: "none",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--ink)";
+                e.target.style.background = "var(--paper)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--line)";
+                e.target.style.background = "var(--bg-sunk)";
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div
+        style={{
+          background: "var(--paper)",
+          border: "1px solid var(--line)",
+          borderRadius: "var(--radius-lg)",
+          padding: "22px",
+        }}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="card-title">Hard requirements</h3>
+            <p
+              style={{
+                marginTop: "6px",
+                fontSize: "14px",
+                lineHeight: "1.6",
+                color: "var(--ink-2)",
+              }}
+            >
+              Non-negotiable expectations such as citation rules or required
+              evidence.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setRubricDraft((current) => ({
+                ...current,
+                hardRequirements: [...current.hardRequirements, ""],
+              }))
+            }
+            className="btn btn-secondary"
+          >
+            Add requirement
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {rubricDraft.hardRequirements.map(
+            (requirement, requirementIndex) => (
+              <div
+                key={`req-${String(requirementIndex)}`}
+                style={{
+                  background: "var(--paper)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "var(--radius)",
+                  padding: "16px",
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <label
+                    className="grid flex-1 gap-2"
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "var(--ink-2)",
+                    }}
+                  >
+                    Requirement {requirementIndex + 1}
+                    <textarea
+                      rows={2}
+                      value={requirement}
+                      onChange={(event) =>
+                        setRubricDraft((current) => ({
+                          ...current,
+                          hardRequirements: current.hardRequirements.map(
+                            (entry, entryIndex) =>
+                              entryIndex === requirementIndex
+                                ? event.target.value
+                                : entry,
+                          ),
+                        }))
+                      }
+                      style={{
+                        background: "var(--bg-sunk)",
+                        border: "1px solid var(--line)",
+                        borderRadius: "var(--radius)",
+                        padding: "10px 12px",
+                        fontSize: "13px",
+                        outline: "none",
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = "var(--ink)";
+                        e.target.style.background = "var(--paper)";
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = "var(--line)";
+                        e.target.style.background = "var(--bg-sunk)";
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRubricDraft((current) => ({
+                        ...current,
+                        hardRequirements:
+                          current.hardRequirements.length === 1
+                            ? [""]
+                            : current.hardRequirements.filter(
+                                (_, entryIndex) =>
+                                  entryIndex !== requirementIndex,
+                              ),
+                      }))
+                    }
+                    className="btn btn-ghost btn-sm"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ),
+          )}
+        </div>
+      </div>
+
+      <div
+        style={{
+          background: "var(--paper)",
+          border: "1px solid var(--line)",
+          borderRadius: "var(--radius-lg)",
+          padding: "22px",
+        }}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="card-title">Criteria and score bands</h3>
+            <p
+              style={{
+                marginTop: "6px",
+                fontSize: "14px",
+                lineHeight: "1.6",
+                color: "var(--ink-2)",
+              }}
+            >
+              Scope each criterion globally or to one or more prompts, then
+              define the score bands.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setRubricDraft((current) => ({
+                ...current,
+                dimensions: [...current.dimensions, emptyDimensionDraft()],
+              }))
+            }
+            className="btn btn-secondary"
+          >
+            Add criterion
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-5">
+          {rubricDraft.dimensions.map((dimension, dimensionIndex) => (
+            <div
+              key={`dim-${dimension.name}-${String(dimensionIndex)}`}
+              style={{
+                background: "var(--paper)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "16px",
+              }}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "var(--ink)",
+                    }}
+                  >
+                    Criterion {dimensionIndex + 1}
+                  </div>
+                  <p
+                    style={{
+                      marginTop: "4px",
+                      fontSize: "12px",
+                      lineHeight: "1.5",
+                      color: "var(--ink-3)",
+                    }}
+                  >
+                    Define what is graded, how much it matters, and whether
+                    it applies globally or to selected prompts.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRubricDraft((current) => ({
+                      ...current,
+                      dimensions:
+                        current.dimensions.length === 1
+                          ? [emptyDimensionDraft()]
+                          : current.dimensions.filter(
+                              (_, entryIndex) =>
+                                entryIndex !== dimensionIndex,
+                            ),
+                    }))
+                  }
+                  className="btn btn-ghost btn-sm"
+                >
+                  Remove criterion
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                <label
+                  className="grid gap-2 xl:col-span-2"
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "var(--ink-2)",
+                  }}
+                >
+                  Criterion name
+                  <input
+                    value={dimension.name}
+                    onChange={(event) =>
+                      setRubricDraft((current) => ({
+                        ...current,
+                        dimensions: current.dimensions.map(
+                          (entry, entryIndex) =>
+                            entryIndex === dimensionIndex
+                              ? { ...entry, name: event.target.value }
+                              : entry,
+                        ),
+                      }))
+                    }
+                    style={{
+                      background: "var(--bg-sunk)",
+                      border: "1px solid var(--line)",
+                      borderRadius: "var(--radius)",
+                      padding: "10px 12px",
+                      fontSize: "13px",
+                      outline: "none",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "var(--ink)";
+                      e.target.style.background = "var(--paper)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "var(--line)";
+                      e.target.style.background = "var(--bg-sunk)";
+                    }}
+                  />
+                </label>
+                <label
+                  className="grid gap-2"
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "var(--ink-2)",
+                  }}
+                >
+                  Scope
+                  <select
+                    value={dimension.scope}
+                    onChange={(event) =>
+                      setRubricDraft((current) => ({
+                        ...current,
+                        dimensions: current.dimensions.map(
+                          (entry, entryIndex) =>
+                            entryIndex === dimensionIndex
+                              ? {
+                                  ...entry,
+                                  scope: event.target.value as
+                                    | "global"
+                                    | "prompt",
+                                  promptIds:
+                                    event.target.value === "global"
+                                      ? []
+                                      : entry.promptIds,
+                                }
+                              : entry,
+                        ),
+                      }))
+                    }
+                    style={{
+                      background: "var(--bg-sunk)",
+                      border: "1px solid var(--line)",
+                      borderRadius: "var(--radius)",
+                      padding: "10px 12px",
+                      fontSize: "13px",
+                      outline: "none",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "var(--ink)";
+                      e.target.style.background = "var(--paper)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "var(--line)";
+                      e.target.style.background = "var(--bg-sunk)";
+                    }}
+                  >
+                    <option value="global">Global</option>
+                    <option value="prompt">Prompt-specific</option>
+                  </select>
+                </label>
+                <label
+                  className="grid gap-2"
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "var(--ink-2)",
+                  }}
+                >
+                  Weight
+                  <input
+                    inputMode="decimal"
+                    value={dimension.weight}
+                    onChange={(event) =>
+                      setRubricDraft((current) => ({
+                        ...current,
+                        dimensions: current.dimensions.map(
+                          (entry, entryIndex) =>
+                            entryIndex === dimensionIndex
+                              ? { ...entry, weight: event.target.value }
+                              : entry,
+                        ),
+                      }))
+                    }
+                    style={{
+                      background: "var(--bg-sunk)",
+                      border: "1px solid var(--line)",
+                      borderRadius: "var(--radius)",
+                      padding: "10px 12px",
+                      fontSize: "13px",
+                      outline: "none",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "var(--ink)";
+                      e.target.style.background = "var(--paper)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "var(--line)";
+                      e.target.style.background = "var(--bg-sunk)";
+                    }}
+                  />
+                </label>
+                <label
+                  className="grid gap-2"
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: "500",
+                    color: "var(--ink-2)",
+                  }}
+                >
+                  Max score
+                  <input
+                    inputMode="decimal"
+                    value={dimension.scaleMax}
+                    onChange={(event) =>
+                      setRubricDraft((current) => ({
+                        ...current,
+                        dimensions: current.dimensions.map(
+                          (entry, entryIndex) =>
+                            entryIndex === dimensionIndex
+                              ? {
+                                  ...entry,
+                                  scaleMax: event.target.value,
+                                }
+                              : entry,
+                        ),
+                      }))
+                    }
+                    style={{
+                      background: "var(--bg-sunk)",
+                      border: "1px solid var(--line)",
+                      borderRadius: "var(--radius)",
+                      padding: "10px 12px",
+                      fontSize: "13px",
+                      outline: "none",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "var(--ink)";
+                      e.target.style.background = "var(--paper)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "var(--line)";
+                      e.target.style.background = "var(--bg-sunk)";
+                    }}
+                  />
+                </label>
+              </div>
+
+              {dimension.scope === "prompt" ? (
+                <div className="mt-4">
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "var(--ink-2)",
+                    }}
+                  >
+                    Applies to prompts
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedPromptDrafts.map((prompt) => {
+                      const isSelected = dimension.promptIds.includes(
+                        prompt.id,
+                      );
+                      return (
+                        <button
+                          key={prompt.id}
+                          type="button"
+                          onClick={() =>
+                            setRubricDraft((current) => ({
+                              ...current,
+                              dimensions: current.dimensions.map(
+                                (entry, entryIndex) => {
+                                  if (entryIndex !== dimensionIndex) {
+                                    return entry;
+                                  }
+
+                                  return {
+                                    ...entry,
+                                    promptIds: isSelected
+                                      ? entry.promptIds.filter(
+                                          (promptId) =>
+                                            promptId !== prompt.id,
+                                        )
+                                      : [...entry.promptIds, prompt.id],
+                                  };
+                                },
+                              ),
+                            }))
+                          }
+                          style={{
+                            borderRadius: "999px",
+                            border: isSelected
+                              ? "1px solid var(--ink)"
+                              : "1px solid var(--line)",
+                            padding: "4px 12px",
+                            fontSize: "12px",
+                            background: isSelected
+                              ? "var(--ink)"
+                              : "var(--paper)",
+                            color: isSelected
+                              ? "var(--bg)"
+                              : "var(--ink-2)",
+                          }}
+                        >
+                          {prompt.title ||
+                            `Prompt ${selectedPromptDrafts.indexOf(prompt) + 1}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              <label
+                className="mt-4 grid gap-2"
+                style={{
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  color: "var(--ink-2)",
+                }}
+              >
+                Criterion description
+                <textarea
+                  rows={3}
+                  value={dimension.descriptor}
+                  onChange={(event) =>
+                    setRubricDraft((current) => ({
+                      ...current,
+                      dimensions: current.dimensions.map(
+                        (entry, entryIndex) =>
+                          entryIndex === dimensionIndex
+                            ? {
+                                ...entry,
+                                descriptor: event.target.value,
+                              }
+                            : entry,
+                      ),
+                    }))
+                  }
+                  style={{
+                    background: "var(--bg-sunk)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "var(--radius)",
+                    padding: "10px 12px",
+                    fontSize: "13px",
+                    outline: "none",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = "var(--ink)";
+                    e.target.style.background = "var(--paper)";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = "var(--line)";
+                    e.target.style.background = "var(--bg-sunk)";
+                  }}
+                />
+              </label>
+
+              <div
+                className="mt-5"
+                style={{
+                  border: "1px solid var(--line)",
+                  borderRadius: "var(--radius-lg)",
+                  background: "var(--paper)",
+                  overflow: "hidden",
+                  padding: "16px",
+                }}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: "500",
+                        color: "var(--ink)",
+                      }}
+                    >
+                      Performance bands
+                    </div>
+                    <p
+                      style={{
+                        marginTop: "4px",
+                        fontSize: "12px",
+                        lineHeight: "1.5",
+                        color: "var(--ink-3)",
+                      }}
+                    >
+                      Define the score ranges and what the writing looks
+                      like in each range.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRubricDraft((current) => ({
+                        ...current,
+                        dimensions: current.dimensions.map(
+                          (entry, entryIndex) =>
+                            entryIndex === dimensionIndex
+                              ? {
+                                  ...entry,
+                                  bands: [...entry.bands, emptyBandDraft()],
+                                }
+                              : entry,
+                        ),
+                      }))
+                    }
+                    className="btn btn-secondary"
+                  >
+                    Add band
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  {dimension.bands.map((band, bandIndex) => (
+                    <div
+                      key={`band-${band.label}-${String(bandIndex)}`}
+                      style={{
+                        background: "var(--bg-sunk)",
+                        border: "1px solid var(--line)",
+                        borderRadius: "var(--radius)",
+                        padding: "16px",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div
+                            style={{
+                              fontSize: "13px",
+                              fontWeight: "500",
+                              color: "var(--ink)",
+                            }}
+                          >
+                            Band {bandIndex + 1}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRubricDraft((current) => ({
+                              ...current,
+                              dimensions: current.dimensions.map(
+                                (entry, entryIndex) =>
+                                  entryIndex === dimensionIndex
+                                    ? {
+                                        ...entry,
+                                        bands:
+                                          entry.bands.length === 1
+                                            ? [emptyBandDraft()]
+                                            : entry.bands.filter(
+                                                (_, innerBandIndex) =>
+                                                  innerBandIndex !==
+                                                  bandIndex,
+                                              ),
+                                      }
+                                    : entry,
+                              ),
+                            }))
+                          }
+                          className="btn btn-ghost btn-sm"
+                        >
+                          Remove band
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                        <label
+                          className="grid gap-2"
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: "500",
+                            color: "var(--ink-2)",
+                          }}
+                        >
+                          Band label
+                          <input
+                            value={band.label}
+                            onChange={(event) =>
+                              setRubricDraft((current) => ({
+                                ...current,
+                                dimensions: current.dimensions.map(
+                                  (entry, entryIndex) =>
+                                    entryIndex === dimensionIndex
+                                      ? {
+                                          ...entry,
+                                          bands: entry.bands.map(
+                                            (bandEntry, innerBandIndex) =>
+                                              innerBandIndex === bandIndex
+                                                ? {
+                                                    ...bandEntry,
+                                                    label:
+                                                      event.target.value,
+                                                  }
+                                                : bandEntry,
+                                          ),
+                                        }
+                                      : entry,
+                                ),
+                              }))
+                            }
+                            style={{
+                              background: "var(--paper)",
+                              border: "1px solid var(--line)",
+                              borderRadius: "var(--radius)",
+                              padding: "10px 12px",
+                              fontSize: "13px",
+                              outline: "none",
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = "var(--ink)";
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = "var(--line)";
+                            }}
+                          />
+                        </label>
+                        <label
+                          className="grid gap-2"
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: "500",
+                            color: "var(--ink-2)",
+                          }}
+                        >
+                          Range start
+                          <input
+                            inputMode="decimal"
+                            value={band.min}
+                            onChange={(event) =>
+                              setRubricDraft((current) => ({
+                                ...current,
+                                dimensions: current.dimensions.map(
+                                  (entry, entryIndex) =>
+                                    entryIndex === dimensionIndex
+                                      ? {
+                                          ...entry,
+                                          bands: entry.bands.map(
+                                            (bandEntry, innerBandIndex) =>
+                                              innerBandIndex === bandIndex
+                                                ? {
+                                                    ...bandEntry,
+                                                    min: event.target.value,
+                                                  }
+                                                : bandEntry,
+                                          ),
+                                        }
+                                      : entry,
+                                ),
+                              }))
+                            }
+                            style={{
+                              background: "var(--paper)",
+                              border: "1px solid var(--line)",
+                              borderRadius: "var(--radius)",
+                              padding: "10px 12px",
+                              fontSize: "13px",
+                              outline: "none",
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = "var(--ink)";
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = "var(--line)";
+                            }}
+                          />
+                        </label>
+                        <label
+                          className="grid gap-2"
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: "500",
+                            color: "var(--ink-2)",
+                          }}
+                        >
+                          Range end
+                          <input
+                            inputMode="decimal"
+                            value={band.max}
+                            onChange={(event) =>
+                              setRubricDraft((current) => ({
+                                ...current,
+                                dimensions: current.dimensions.map(
+                                  (entry, entryIndex) =>
+                                    entryIndex === dimensionIndex
+                                      ? {
+                                          ...entry,
+                                          bands: entry.bands.map(
+                                            (bandEntry, innerBandIndex) =>
+                                              innerBandIndex === bandIndex
+                                                ? {
+                                                    ...bandEntry,
+                                                    max: event.target.value,
+                                                  }
+                                                : bandEntry,
+                                          ),
+                                        }
+                                      : entry,
+                                ),
+                              }))
+                            }
+                            style={{
+                              background: "var(--paper)",
+                              border: "1px solid var(--line)",
+                              borderRadius: "var(--radius)",
+                              padding: "10px 12px",
+                              fontSize: "13px",
+                              outline: "none",
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = "var(--ink)";
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = "var(--line)";
+                            }}
+                          />
+                        </label>
+                      </div>
+
+                      <label
+                        className="mt-4 grid gap-2"
+                        style={{
+                          fontSize: "13px",
+                          fontWeight: "500",
+                          color: "var(--ink-2)",
+                        }}
+                      >
+                        Band description
+                        <textarea
+                          rows={3}
+                          value={band.descriptor}
+                          onChange={(event) =>
+                            setRubricDraft((current) => ({
+                              ...current,
+                              dimensions: current.dimensions.map(
+                                (entry, entryIndex) =>
+                                  entryIndex === dimensionIndex
+                                    ? {
+                                        ...entry,
+                                        bands: entry.bands.map(
+                                          (bandEntry, innerBandIndex) =>
+                                            innerBandIndex === bandIndex
+                                              ? {
+                                                  ...bandEntry,
+                                                  descriptor:
+                                                    event.target.value,
+                                                }
+                                              : bandEntry,
+                                        ),
+                                      }
+                                    : entry,
+                              ),
+                            }))
+                          }
+                          style={{
+                            background: "var(--paper)",
+                            border: "1px solid var(--line)",
+                            borderRadius: "var(--radius)",
+                            padding: "10px 12px",
+                            fontSize: "13px",
+                            outline: "none",
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = "var(--ink)";
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = "var(--line)";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={isPending}
+        className="btn btn-primary"
+        style={{
+          opacity: isPending ? "0.5" : "1",
+          cursor: isPending ? "not-allowed" : "pointer",
+        }}
+      >
+        {buttonLabel}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
 
 export function AssignmentDashboard({
   hasOpenAIKey,
@@ -278,6 +2006,7 @@ export function AssignmentDashboard({
   const [currentTask, setCurrentTask] = useState<string | null>(null);
   const [activity, setActivity] = useState<DiagnosticEvent[]>([]);
   const [isPending, startTransition] = useTransition();
+  const [view, setView] = useState<ViewState>("index");
 
   const selectedBundle = assignments.find(
     (bundle) => bundle.assignment.id === selectedAssignmentId,
@@ -383,6 +2112,7 @@ export function AssignmentDashboard({
       setAssignmentForm(emptyAssignmentForm);
       window.sessionStorage.removeItem(assignmentDraftStorageKey);
       setStatus("Assignment created.");
+      setView("review");
     });
   }
 
@@ -416,6 +2146,124 @@ export function AssignmentDashboard({
     });
   }
 
+  function handleSelectAssignment(id: string) {
+    setSelectedAssignmentId(id);
+    setRubricDraft(rubricFormFor(id, assignments));
+    setSelectedPromptDrafts(promptSetDraftFor(id, assignments));
+    setView("review");
+  }
+
+  function handleNewAssignment() {
+    setView("create");
+  }
+
+  function handleBackToIndex() {
+    setView("index");
+  }
+
+  /* ---- Topbar configuration per view ---- */
+
+  function buildBreadcrumbs(): Array<{ label: string; muted?: boolean; onClick?: () => void }> {
+    switch (view) {
+      case "index":
+        return [
+          { label: "Dashboard" },
+          { label: "All assignments", muted: true },
+        ];
+      case "create":
+        return [
+          { label: "\u2190 Assignments", onClick: handleBackToIndex },
+          { label: "New assignment" },
+        ];
+      case "review":
+        return [
+          { label: "\u2190 Assignments", onClick: handleBackToIndex },
+          { label: selectedBundle?.assignment.assignmentName ?? "Assignment" },
+        ];
+    }
+  }
+
+  function buildTabs(): Array<{ label: string; count?: number; active?: boolean; onClick?: () => void }> | undefined {
+    switch (view) {
+      case "index":
+        return undefined;
+      case "create":
+        return [
+          { label: "Setup", active: true },
+        ];
+      case "review":
+        return [
+          { label: "Context", active: true },
+        ];
+    }
+  }
+
+  function buildTopbarActions(): React.ReactNode {
+    if (view === "index") {
+      return (
+        <button
+          type="button"
+          onClick={handleNewAssignment}
+          className="btn btn-primary"
+          style={{ padding: "7px 14px", fontSize: "12px" }}
+        >
+          <PlusIcon size={13} />
+          New
+        </button>
+      );
+    }
+    return undefined;
+  }
+
+  /* ---- Header for index view ---- */
+
+  function renderViewHeader() {
+    if (view !== "index") {
+      return null;
+    }
+
+    return (
+      <div className="view-header" style={{ marginBottom: "32px" }}>
+        <div
+          className="caps"
+          style={{ color: "var(--accent)", marginBottom: "10px" }}
+        >
+          Assignments
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "20px" }}>
+          <div>
+            <h1 className="view-title">
+              Your <em>assignments</em>.
+            </h1>
+            <p
+              style={{
+                color: "var(--ink-2)",
+                fontSize: "15px",
+                maxWidth: "620px",
+                lineHeight: "1.55",
+                marginTop: "12px",
+              }}
+            >
+              Upload the rubric once, give the assignment core metadata, and let the
+              model infer the prompt set and grading structure.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleNewAssignment}
+            className="btn btn-primary"
+            style={{ flexShrink: 0 }}
+          >
+            <PlusIcon size={14} />
+            New assignment
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- Render ---- */
+
   return (
     <DashboardShell
       activePage="assignments"
@@ -427,880 +2275,52 @@ export function AssignmentDashboard({
       error={error}
       currentTask={currentTask}
       activity={activity}
+      selectedAssignmentId={selectedAssignmentId}
+      onSelectAssignment={handleSelectAssignment}
+      onNewAssignment={handleNewAssignment}
+      breadcrumbs={buildBreadcrumbs()}
+      tabs={buildTabs()}
+      topbarActions={buildTopbarActions()}
     >
-      <section className="grid gap-6 lg:grid-cols-[0.94fr_1.06fr]">
-        <div className="rounded-4xl border border-white/70 bg-white/85 p-6 shadow-[0_20px_60px_rgba(87,61,33,0.08)]">
-          <div className="mb-6">
-            <h2 className="text-2xl font-semibold">1. Create Assignment</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Upload the rubric once, give the assignment core metadata, and
-              let the model infer the prompt set and grading structure.
-            </p>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              If this fails, the exact backend error appears in the diagnostics
-              panel.
-            </p>
-          </div>
-          <form action={handleCreateAssignment} className="grid gap-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                Assignment name
-                <input
-                  required
-                  name="assignmentName"
-                  value={assignmentForm.assignmentName}
-                  onChange={(event) =>
-                    setAssignmentForm((current) => ({
-                      ...current,
-                      assignmentName: event.target.value,
-                    }))
-                  }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                  placeholder="Hamlet close reading"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                Course name
-                <input
-                  required
-                  name="courseName"
-                  value={assignmentForm.courseName}
-                  onChange={(event) =>
-                    setAssignmentForm((current) => ({
-                      ...current,
-                      courseName: event.target.value,
-                    }))
-                  }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                  placeholder="English 11"
-                />
-              </label>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                Subject
-                <input
-                  required
-                  name="subject"
-                  value={assignmentForm.subject}
-                  onChange={(event) =>
-                    setAssignmentForm((current) => ({
-                      ...current,
-                      subject: event.target.value,
-                    }))
-                  }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                  placeholder="English"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                Academic level
-                <select
-                  name="level"
-                  value={assignmentForm.level}
-                  onChange={(event) =>
-                    setAssignmentForm((current) => ({
-                      ...current,
-                      level: event.target.value,
-                    }))
-                  }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                >
-                  <option value="high_school">High school</option>
-                  <option value="college">College</option>
-                  <option value="ap">AP</option>
-                  <option value="esl">ESL</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                Assignment type
-                <select
-                  required
-                  name="assignmentType"
-                  value={assignmentForm.assignmentType}
-                  onChange={(event) =>
-                    setAssignmentForm((current) => ({
-                      ...current,
-                      assignmentType: event.target.value,
-                    }))
-                  }
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                >
-                  <option value="Essay">Essay</option>
-                  <option value="Short Answers">Short Answers</option>
-                </select>
-              </label>
-            </div>
+      {renderViewHeader()}
 
-            <label className="grid gap-2 text-sm font-medium text-slate-700">
-              Rubric file
-              <input
-                required
-                name="rubricFile"
-                type="file"
-                accept=".pdf,.docx,.txt,.md,.csv,.json"
-                className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-medium text-slate-700">
-              Readings and source materials
-              <input
-                multiple
-                name="readingFiles"
-                type="file"
-                accept=".pdf,.docx,.txt,.md,.csv,.json"
-                className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm"
-              />
-            </label>
-            <button
-              disabled={isPending || !hasOpenAIKey}
-              className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {buttonLabel(
-                "Create assignment",
-                "Creating assignment and indexing shared context...",
-              )}
-            </button>
-          </form>
-        </div>
+      {view === "index" && (
+        <AssignmentIndexView
+          assignments={assignments}
+          onOpenAssignment={handleSelectAssignment}
+          onNewAssignment={handleNewAssignment}
+        />
+      )}
 
-        <div className="rounded-4xl border border-white/70 bg-white/85 p-6 shadow-[0_20px_60px_rgba(87,61,33,0.08)]">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold">
-                2. Review Assignment Context
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Select an assignment, inspect the prompt set and normalized
-                rubric, then adjust both before grading starts.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:items-end">
-              <select
-                value={selectedAssignmentId}
-                onChange={(event) => {
-                  const nextId = event.target.value;
-                  setSelectedAssignmentId(nextId);
-                  setRubricDraft(rubricFormFor(nextId, assignments));
-                  setSelectedPromptDrafts(
-                    promptSetDraftFor(nextId, assignments),
-                  );
-                }}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none transition focus:border-amber-400"
-              >
-                {assignments.length === 0 ? (
-                  <option value="">No assignments yet</option>
-                ) : null}
-                {assignments.map((bundle) => (
-                  <option
-                    key={bundle.assignment.id}
-                    value={bundle.assignment.id}
-                  >
-                    {bundle.assignment.assignmentName}
-                  </option>
-                ))}
-              </select>
-              {selectedBundle ? (
-                <div className="flex flex-wrap gap-3">
-                  <Link
-                    href="/grading"
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
-                  >
-                    Open grading workspace
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => downloadResults(selectedBundle)}
-                    className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
-                  >
-                    Export JSON
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          {selectedBundle ? (
-            <div className="mt-6 space-y-5">
-              <div className="grid gap-4 sm:grid-cols-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Assignment
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedBundle.assignment.assignmentName}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Level profile
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedBundle.assignment.levelProfile}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Prompts
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedPromptDrafts.length}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Shared assets
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedBundle.assignment.assets.length}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-                <div className="text-sm font-medium text-slate-900">
-                  Context summary
-                </div>
-                <pre className="mt-3 whitespace-pre-wrap font-mono text-xs leading-6 text-slate-600">
-                  {selectedBundle.assignment.contextSummary}
-                </pre>
-              </div>
-
-              <PromptSetEditor
-                prompts={selectedPromptDrafts}
-                onChange={setSelectedPromptDrafts}
-                title="Editable prompt set"
-                description="These prompts define segmentation and per-prompt grading. Save them together with the rubric."
-              />
-
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
-                <h3 className="text-base font-semibold text-slate-900">
-                  Rubric setup
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Edit the structured rubric the model uses during scoring. Each
-                  criterion can apply globally or to specific prompts only.
-                </p>
-
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    Rubric ID
-                    <input
-                      value={rubricDraft.rubricId}
-                      onChange={(event) =>
-                        setRubricDraft((current) => ({
-                          ...current,
-                          rubricId: event.target.value,
-                        }))
-                      }
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    Grading mode
-                    <select
-                      value={rubricDraft.gradingMode}
-                      onChange={(event) =>
-                        setRubricDraft((current) => ({
-                          ...current,
-                          gradingMode: event.target.value as
-                            | "analytic"
-                            | "holistic",
-                        }))
-                      }
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                    >
-                      <option value="analytic">Analytic</option>
-                      <option value="holistic">Holistic</option>
-                    </select>
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    Total rubric scale
-                    <input
-                      inputMode="decimal"
-                      value={rubricDraft.totalScaleMax}
-                      onChange={(event) =>
-                        setRubricDraft((current) => ({
-                          ...current,
-                          totalScaleMax: event.target.value,
-                        }))
-                      }
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    Notes
-                    <textarea
-                      rows={4}
-                      value={rubricDraft.notes}
-                      onChange={(event) =>
-                        setRubricDraft((current) => ({
-                          ...current,
-                          notes: event.target.value,
-                        }))
-                      }
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900">
-                      Hard requirements
-                    </h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      Non-negotiable expectations such as citation rules or
-                      required evidence.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setRubricDraft((current) => ({
-                        ...current,
-                        hardRequirements: [...current.hardRequirements, ""],
-                      }))
-                    }
-                    className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
-                  >
-                    Add requirement
-                  </button>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  {rubricDraft.hardRequirements.map(
-                    (requirement, requirementIndex) => (
-                      <div
-                        key={`requirement-${requirementIndex}`}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <label className="grid flex-1 gap-2 text-sm font-medium text-slate-700">
-                            Requirement {requirementIndex + 1}
-                            <textarea
-                              rows={2}
-                              value={requirement}
-                              onChange={(event) =>
-                                setRubricDraft((current) => ({
-                                  ...current,
-                                  hardRequirements:
-                                    current.hardRequirements.map(
-                                      (entry, entryIndex) =>
-                                        entryIndex === requirementIndex
-                                          ? event.target.value
-                                          : entry,
-                                    ),
-                                }))
-                              }
-                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setRubricDraft((current) => ({
-                                ...current,
-                                hardRequirements:
-                                  current.hardRequirements.length === 1
-                                    ? [""]
-                                    : current.hardRequirements.filter(
-                                        (_, entryIndex) =>
-                                          entryIndex !== requirementIndex,
-                                      ),
-                              }))
-                            }
-                            className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-rose-300 hover:text-rose-700"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900">
-                      Criteria and score bands
-                    </h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      Scope each criterion globally or to one or more prompts,
-                      then define the score bands.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setRubricDraft((current) => ({
-                        ...current,
-                        dimensions: [
-                          ...current.dimensions,
-                          emptyDimensionDraft(),
-                        ],
-                      }))
-                    }
-                    className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
-                  >
-                    Add criterion
-                  </button>
-                </div>
-
-                <div className="mt-5 space-y-5">
-                  {rubricDraft.dimensions.map((dimension, dimensionIndex) => (
-                    <div
-                      key={`dimension-${dimensionIndex}`}
-                      className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <div className="text-sm font-semibold text-slate-900">
-                            Criterion {dimensionIndex + 1}
-                          </div>
-                          <p className="mt-1 text-xs leading-5 text-slate-500">
-                            Define what is graded, how much it matters, and
-                            whether it applies globally or to selected prompts.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRubricDraft((current) => ({
-                              ...current,
-                              dimensions:
-                                current.dimensions.length === 1
-                                  ? [emptyDimensionDraft()]
-                                  : current.dimensions.filter(
-                                      (_, entryIndex) =>
-                                        entryIndex !== dimensionIndex,
-                                    ),
-                            }))
-                          }
-                          className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-rose-300 hover:text-rose-700"
-                        >
-                          Remove criterion
-                        </button>
-                      </div>
-
-                      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-                        <label className="grid gap-2 text-sm font-medium text-slate-700 xl:col-span-2">
-                          Criterion name
-                          <input
-                            value={dimension.name}
-                            onChange={(event) =>
-                              setRubricDraft((current) => ({
-                                ...current,
-                                dimensions: current.dimensions.map(
-                                  (entry, entryIndex) =>
-                                    entryIndex === dimensionIndex
-                                      ? { ...entry, name: event.target.value }
-                                      : entry,
-                                ),
-                              }))
-                            }
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                          />
-                        </label>
-                        <label className="grid gap-2 text-sm font-medium text-slate-700">
-                          Scope
-                          <select
-                            value={dimension.scope}
-                            onChange={(event) =>
-                              setRubricDraft((current) => ({
-                                ...current,
-                                dimensions: current.dimensions.map(
-                                  (entry, entryIndex) =>
-                                    entryIndex === dimensionIndex
-                                      ? {
-                                          ...entry,
-                                          scope: event.target.value as
-                                            | "global"
-                                            | "prompt",
-                                          promptIds:
-                                            event.target.value === "global"
-                                              ? []
-                                              : entry.promptIds,
-                                        }
-                                      : entry,
-                                ),
-                              }))
-                            }
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                          >
-                            <option value="global">Global</option>
-                            <option value="prompt">Prompt-specific</option>
-                          </select>
-                        </label>
-                        <label className="grid gap-2 text-sm font-medium text-slate-700">
-                          Weight
-                          <input
-                            inputMode="decimal"
-                            value={dimension.weight}
-                            onChange={(event) =>
-                              setRubricDraft((current) => ({
-                                ...current,
-                                dimensions: current.dimensions.map(
-                                  (entry, entryIndex) =>
-                                    entryIndex === dimensionIndex
-                                      ? { ...entry, weight: event.target.value }
-                                      : entry,
-                                ),
-                              }))
-                            }
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                          />
-                        </label>
-                        <label className="grid gap-2 text-sm font-medium text-slate-700">
-                          Max score
-                          <input
-                            inputMode="decimal"
-                            value={dimension.scaleMax}
-                            onChange={(event) =>
-                              setRubricDraft((current) => ({
-                                ...current,
-                                dimensions: current.dimensions.map(
-                                  (entry, entryIndex) =>
-                                    entryIndex === dimensionIndex
-                                      ? {
-                                          ...entry,
-                                          scaleMax: event.target.value,
-                                        }
-                                      : entry,
-                                ),
-                              }))
-                            }
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                          />
-                        </label>
-                      </div>
-
-                      {dimension.scope === "prompt" ? (
-                        <div className="mt-4">
-                          <div className="text-sm font-medium text-slate-700">
-                            Applies to prompts
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {selectedPromptDrafts.map((prompt) => {
-                              const isSelected = dimension.promptIds.includes(
-                                prompt.id,
-                              );
-                              return (
-                                <button
-                                  key={`${dimensionIndex}-${prompt.id}`}
-                                  type="button"
-                                  onClick={() =>
-                                    setRubricDraft((current) => ({
-                                      ...current,
-                                      dimensions: current.dimensions.map(
-                                        (entry, entryIndex) => {
-                                          if (entryIndex !== dimensionIndex) {
-                                            return entry;
-                                          }
-
-                                          return {
-                                            ...entry,
-                                            promptIds: isSelected
-                                              ? entry.promptIds.filter(
-                                                  (promptId) =>
-                                                    promptId !== prompt.id,
-                                                )
-                                              : [...entry.promptIds, prompt.id],
-                                          };
-                                        },
-                                      ),
-                                    }))
-                                  }
-                                  className={`rounded-full border px-3 py-1 text-xs ${
-                                    isSelected
-                                      ? "border-slate-950 bg-slate-950 text-white"
-                                      : "border-slate-300 bg-white text-slate-700"
-                                  }`}
-                                >
-                                  {prompt.title ||
-                                    `Prompt ${selectedPromptDrafts.indexOf(prompt) + 1}`}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <label className="mt-4 grid gap-2 text-sm font-medium text-slate-700">
-                        Criterion description
-                        <textarea
-                          rows={3}
-                          value={dimension.descriptor}
-                          onChange={(event) =>
-                            setRubricDraft((current) => ({
-                              ...current,
-                              dimensions: current.dimensions.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === dimensionIndex
-                                    ? {
-                                        ...entry,
-                                        descriptor: event.target.value,
-                                      }
-                                    : entry,
-                              ),
-                            }))
-                          }
-                          className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                        />
-                      </label>
-
-                      <div className="mt-5 rounded-[1.25rem] border border-slate-200 bg-white p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900">
-                              Performance bands
-                            </div>
-                            <p className="mt-1 text-xs leading-5 text-slate-500">
-                              Define the score ranges and what the writing looks
-                              like in each range.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setRubricDraft((current) => ({
-                                ...current,
-                                dimensions: current.dimensions.map(
-                                  (entry, entryIndex) =>
-                                    entryIndex === dimensionIndex
-                                      ? {
-                                          ...entry,
-                                          bands: [
-                                            ...entry.bands,
-                                            emptyBandDraft(),
-                                          ],
-                                        }
-                                      : entry,
-                                ),
-                              }))
-                            }
-                            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
-                          >
-                            Add band
-                          </button>
-                        </div>
-
-                        <div className="mt-4 space-y-4">
-                          {dimension.bands.map((band, bandIndex) => (
-                            <div
-                              key={`band-${dimensionIndex}-${bandIndex}`}
-                              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="text-sm font-semibold text-slate-900">
-                                    Band {bandIndex + 1}
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setRubricDraft((current) => ({
-                                      ...current,
-                                      dimensions: current.dimensions.map(
-                                        (entry, entryIndex) =>
-                                          entryIndex === dimensionIndex
-                                            ? {
-                                                ...entry,
-                                                bands:
-                                                  entry.bands.length === 1
-                                                    ? [emptyBandDraft()]
-                                                    : entry.bands.filter(
-                                                        (_, innerBandIndex) =>
-                                                          innerBandIndex !==
-                                                          bandIndex,
-                                                      ),
-                                              }
-                                            : entry,
-                                      ),
-                                    }))
-                                  }
-                                  className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-rose-300 hover:text-rose-700"
-                                >
-                                  Remove band
-                                </button>
-                              </div>
-
-                              <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                                  Band label
-                                  <input
-                                    value={band.label}
-                                    onChange={(event) =>
-                                      setRubricDraft((current) => ({
-                                        ...current,
-                                        dimensions: current.dimensions.map(
-                                          (entry, entryIndex) =>
-                                            entryIndex === dimensionIndex
-                                              ? {
-                                                  ...entry,
-                                                  bands: entry.bands.map(
-                                                    (
-                                                      bandEntry,
-                                                      innerBandIndex,
-                                                    ) =>
-                                                      innerBandIndex ===
-                                                      bandIndex
-                                                        ? {
-                                                            ...bandEntry,
-                                                            label:
-                                                              event.target
-                                                                .value,
-                                                          }
-                                                        : bandEntry,
-                                                  ),
-                                                }
-                                              : entry,
-                                        ),
-                                      }))
-                                    }
-                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                                  />
-                                </label>
-                                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                                  Range start
-                                  <input
-                                    inputMode="decimal"
-                                    value={band.min}
-                                    onChange={(event) =>
-                                      setRubricDraft((current) => ({
-                                        ...current,
-                                        dimensions: current.dimensions.map(
-                                          (entry, entryIndex) =>
-                                            entryIndex === dimensionIndex
-                                              ? {
-                                                  ...entry,
-                                                  bands: entry.bands.map(
-                                                    (
-                                                      bandEntry,
-                                                      innerBandIndex,
-                                                    ) =>
-                                                      innerBandIndex ===
-                                                      bandIndex
-                                                        ? {
-                                                            ...bandEntry,
-                                                            min: event.target
-                                                              .value,
-                                                          }
-                                                        : bandEntry,
-                                                  ),
-                                                }
-                                              : entry,
-                                        ),
-                                      }))
-                                    }
-                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                                  />
-                                </label>
-                                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                                  Range end
-                                  <input
-                                    inputMode="decimal"
-                                    value={band.max}
-                                    onChange={(event) =>
-                                      setRubricDraft((current) => ({
-                                        ...current,
-                                        dimensions: current.dimensions.map(
-                                          (entry, entryIndex) =>
-                                            entryIndex === dimensionIndex
-                                              ? {
-                                                  ...entry,
-                                                  bands: entry.bands.map(
-                                                    (
-                                                      bandEntry,
-                                                      innerBandIndex,
-                                                    ) =>
-                                                      innerBandIndex ===
-                                                      bandIndex
-                                                        ? {
-                                                            ...bandEntry,
-                                                            max: event.target
-                                                              .value,
-                                                          }
-                                                        : bandEntry,
-                                                  ),
-                                                }
-                                              : entry,
-                                        ),
-                                      }))
-                                    }
-                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                                  />
-                                </label>
-                              </div>
-
-                              <label className="mt-4 grid gap-2 text-sm font-medium text-slate-700">
-                                Band description
-                                <textarea
-                                  rows={3}
-                                  value={band.descriptor}
-                                  onChange={(event) =>
-                                    setRubricDraft((current) => ({
-                                      ...current,
-                                      dimensions: current.dimensions.map(
-                                        (entry, entryIndex) =>
-                                          entryIndex === dimensionIndex
-                                            ? {
-                                                ...entry,
-                                                bands: entry.bands.map(
-                                                  (
-                                                    bandEntry,
-                                                    innerBandIndex,
-                                                  ) =>
-                                                    innerBandIndex === bandIndex
-                                                      ? {
-                                                          ...bandEntry,
-                                                          descriptor:
-                                                            event.target.value,
-                                                        }
-                                                      : bandEntry,
-                                                ),
-                                              }
-                                            : entry,
-                                      ),
-                                    }))
-                                  }
-                                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-amber-400"
-                                />
-                              </label>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleSaveAssignmentConfig}
-                disabled={isPending}
-                className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-900 transition hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {buttonLabel(
-                  "Save prompt set and rubric",
-                  "Saving prompts and rubric...",
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-sm text-slate-600">
-              Create an assignment first to review its context package.
-            </div>
+      {view === "create" && (
+        <CreateFormView
+          assignmentForm={assignmentForm}
+          setAssignmentForm={setAssignmentForm}
+          hasOpenAIKey={hasOpenAIKey}
+          isPending={isPending}
+          buttonLabel={buttonLabel(
+            "Create assignment",
+            "Creating assignment and indexing shared context...",
           )}
-        </div>
-      </section>
+          onSubmit={handleCreateAssignment}
+        />
+      )}
+
+      {view === "review" && selectedBundle && (
+        <ReviewView
+          selectedBundle={selectedBundle}
+          selectedPromptDrafts={selectedPromptDrafts}
+          setSelectedPromptDrafts={setSelectedPromptDrafts}
+          rubricDraft={rubricDraft}
+          setRubricDraft={setRubricDraft}
+          isPending={isPending}
+          buttonLabel={buttonLabel(
+            "Save prompt set and rubric",
+            "Saving prompts and rubric...",
+          )}
+          onSave={handleSaveAssignmentConfig}
+        />
+      )}
     </DashboardShell>
   );
 }

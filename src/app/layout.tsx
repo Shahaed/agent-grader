@@ -1,14 +1,23 @@
 import { Analytics } from "@vercel/analytics/next";
 import type { Metadata } from "next";
-import {
-  ClerkProvider,
-  Show,
-  SignInButton,
-  SignUpButton,
-  UserButton,
-} from "@clerk/nextjs";
+import { Geist } from "next/font/google";
+import { Instrument_Serif } from "next/font/google";
+import { JetBrains_Mono } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
 import { getSiteUrl, siteConfig } from "./brand";
 import "./globals.css";
+
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  variable: "--font-instrument",
+});
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
+});
 
 const siteUrl = getSiteUrl();
 
@@ -43,23 +52,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">
+    <html
+      lang="en"
+      className={`h-full antialiased ${geist.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable}`}
+    >
+      <body className="h-full">
         <ClerkProvider
           appearance={{
             logoImageUrl: siteConfig.logoPath,
             faviconImageUrl: siteConfig.logoPath,
           }}
         >
-          <header className="flex items-center justify-end gap-3 border-b px-4 py-3">
-            <Show when="signed-out">
-              <SignInButton />
-              <SignUpButton />
-            </Show>
-            <Show when="signed-in">
-              <UserButton />
-            </Show>
-          </header>
           {children}
           <Analytics />
         </ClerkProvider>

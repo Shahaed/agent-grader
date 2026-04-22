@@ -1,794 +1,1555 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import type { AssignmentBundle, GradingResultRecord } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
 import { DashboardShell } from "./dashboard-shell";
 import {
-  downloadResults,
-  promptScoreLabel,
-  readJson,
-  readSessionStorage,
-  resolveSelectedAssignmentId,
-  scoreLabel,
-  selectedAssignmentStorageKey,
-  type DiagnosticEvent,
+	downloadResults,
+	promptScoreLabel,
+	readJson,
+	readSessionStorage,
+	resolveSelectedAssignmentId,
+	scoreLabel,
+	selectedAssignmentStorageKey,
+	type DiagnosticEvent,
 } from "./dashboard-shared";
 
-interface GradingDashboardProps {
-  hasOpenAIKey: boolean;
-  initialAssignments: AssignmentBundle[];
+/* ------------------------------------------------------------------ */
+/*  Inline SVG icons                                                    */
+/* ------------------------------------------------------------------ */
+
+function IconPlus(props: React.SVGProps<SVGSVGElement>) {
+	return (
+		<svg
+			width="14"
+			height="14"
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			{...props}
+		>
+			<path d="M8 3v10M3 8h10" />
+		</svg>
+	);
 }
 
+function IconX(props: React.SVGProps<SVGSVGElement>) {
+	return (
+		<svg
+			width="12"
+			height="12"
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			{...props}
+		>
+			<path d="M4 4l8 8M12 4l-8 8" />
+		</svg>
+	);
+}
+
+function IconArrow(props: React.SVGProps<SVGSVGElement>) {
+	return (
+		<svg
+			width="14"
+			height="14"
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			{...props}
+		>
+			<path d="M3 8h10M9 4l4 4-4 4" />
+		</svg>
+	);
+}
+
+function IconCheck(props: React.SVGProps<SVGSVGElement>) {
+	return (
+		<svg
+			width="12"
+			height="12"
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			{...props}
+		>
+			<path d="M3 8.5l3.5 3.5L13 5" />
+		</svg>
+	);
+}
+
+function IconUpload(props: React.SVGProps<SVGSVGElement>) {
+	return (
+		<svg
+			width="16"
+			height="16"
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.5"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			{...props}
+		>
+			<path d="M8 11V3M5 6l3-3 3 3M3 11v2h10v-2" />
+		</svg>
+	);
+}
+
+function IconSparkle(props: React.SVGProps<SVGSVGElement>) {
+	return (
+		<svg
+			width="14"
+			height="14"
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.4"
+			strokeLinejoin="round"
+			{...props}
+		>
+			<path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2" />
+		</svg>
+	);
+}
+
+function IconChevronRight(props: React.SVGProps<SVGSVGElement>) {
+	return (
+		<svg
+			width="12"
+			height="12"
+			viewBox="0 0 16 16"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			{...props}
+		>
+			<path d="M6 3l5 5-5 5" />
+		</svg>
+	);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface QueuedFile {
+	id: string;
+	name: string;
+	size: number;
+	file: File;
+	status: "queued" | "running" | "done" | "error";
+}
+
+type GradingMode = "landing" | "workspace";
+
+interface GradingDashboardProps {
+	hasOpenAIKey: boolean;
+	initialAssignments: AssignmentBundle[];
+}
+
+/* ------------------------------------------------------------------ */
+/*  Assignment picker dialog (Radix)                                   */
+/* ------------------------------------------------------------------ */
+
+function AssignmentPickerDialog({
+	open,
+	onOpenChange,
+	assignments,
+	onPick,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	assignments: AssignmentBundle[];
+	onPick: (id: string) => void;
+}) {
+	return (
+		<Dialog.Root open={open} onOpenChange={onOpenChange}>
+			<Dialog.Portal>
+				<Dialog.Overlay className="dialog-overlay" />
+				<Dialog.Content className="dialog-content">
+					<div className="dialog-header">
+						<div>
+							<div
+								className="caps"
+								style={{ color: "var(--accent)", marginBottom: 4 }}
+							>
+								New grading batch
+							</div>
+							<Dialog.Title
+								className="serif"
+								style={{ fontSize: 24, letterSpacing: "-0.015em", margin: 0 }}
+							>
+								Which assignment are you grading?
+							</Dialog.Title>
+						</div>
+						<Dialog.Close asChild>
+							<button type="button" className="icon-btn">
+								<IconX />
+							</button>
+						</Dialog.Close>
+					</div>
+					<div
+						style={{
+							padding: "14px 20px 20px",
+							display: "flex",
+							flexDirection: "column",
+							gap: 8,
+							maxHeight: 440,
+							overflowY: "auto",
+						}}
+					>
+						{assignments.length === 0 && (
+							<div
+								style={{
+									textAlign: "center",
+									padding: 30,
+									color: "var(--ink-3)",
+								}}
+							>
+								<div
+									className="serif"
+									style={{ fontSize: 20, color: "var(--ink)", marginBottom: 8 }}
+								>
+									No assignments yet.
+								</div>
+								<div style={{ fontSize: 13 }}>
+									Create one on the{" "}
+									<Link
+										href="/assignments"
+										style={{
+											color: "var(--accent)",
+											textDecoration: "underline",
+										}}
+									>
+										assignments page
+									</Link>{" "}
+									first.
+								</div>
+							</div>
+						)}
+						{assignments.map((bundle) => (
+							<button
+								type="button"
+								key={bundle.assignment.id}
+								className="picker-card"
+								onClick={() => onPick(bundle.assignment.id)}
+							>
+								<div>
+									<div className="picker-title">
+										{bundle.assignment.assignmentName}
+									</div>
+									<div className="picker-sub">
+										<span>{bundle.assignment.courseProfile.courseName}</span>
+										<span className="dot" />
+										<span>
+											{bundle.assignment.assignmentProfile.promptSet.length}{" "}
+											prompts
+										</span>
+										<span className="dot" />
+										<span>{bundle.results.length} graded</span>
+									</div>
+								</div>
+								<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+									<span className="chip">
+										{bundle.assignment.normalizedRubric.rubricId}
+									</span>
+									<IconChevronRight style={{ color: "var(--ink-3)" }} />
+								</div>
+							</button>
+						))}
+					</div>
+				</Dialog.Content>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
+
 export function GradingDashboard({
-  hasOpenAIKey,
-  initialAssignments,
+	hasOpenAIKey,
+	initialAssignments,
 }: GradingDashboardProps) {
-  const [assignments, setAssignments] = useState(initialAssignments);
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState(() =>
-    resolveSelectedAssignmentId(
-      [readSessionStorage(selectedAssignmentStorageKey)],
-      initialAssignments,
-    ),
-  );
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
-  const [currentTask, setCurrentTask] = useState<string | null>(null);
-  const [activity, setActivity] = useState<DiagnosticEvent[]>([]);
-  const [isPending, startTransition] = useTransition();
+	const [assignments, setAssignments] = useState(initialAssignments);
+	const [selectedAssignmentId, setSelectedAssignmentId] = useState(() =>
+		resolveSelectedAssignmentId(
+			[readSessionStorage(selectedAssignmentStorageKey)],
+			initialAssignments,
+		),
+	);
+	const [status, setStatus] = useState("");
+	const [error, setError] = useState("");
+	const [currentTask, setCurrentTask] = useState<string | null>(null);
+	const [activity, setActivity] = useState<DiagnosticEvent[]>([]);
+	const [isPending, startTransition] = useTransition();
+	const [activeTab, setActiveTab] = useState<"grade" | "results">("grade");
+	const [selectedResultIndex, setSelectedResultIndex] = useState(0);
 
-  const selectedBundle = assignments.find(
-    (bundle) => bundle.assignment.id === selectedAssignmentId,
-  );
+	const [mode, setMode] = useState<GradingMode>("landing");
+	const [pickerOpen, setPickerOpen] = useState(false);
+	const [fileQueue, setFileQueue] = useState<QueuedFile[]>([]);
+	const [grading, setGrading] = useState(false);
+	const [progress, setProgress] = useState({
+		step: 0,
+		total: 0,
+		label: "",
+		subStep: "",
+	});
+	const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    window.sessionStorage.setItem(
-      selectedAssignmentStorageKey,
-      selectedAssignmentId,
-    );
-  }, [selectedAssignmentId]);
+	const selectedBundle = assignments.find(
+		(bundle) => bundle.assignment.id === selectedAssignmentId,
+	);
 
-  async function refreshAssignments(nextSelectedId?: string) {
-    const response = await fetch("/api/assignments", {
-      cache: "no-store",
-    });
-    const payload = await readJson<{ assignments: AssignmentBundle[] }>(
-      response,
-    );
-    setAssignments(payload.assignments);
+	useEffect(() => {
+		window.sessionStorage.setItem(
+			selectedAssignmentStorageKey,
+			selectedAssignmentId,
+		);
+	}, [selectedAssignmentId]);
 
-    const resolvedSelectedId = resolveSelectedAssignmentId(
-      [nextSelectedId, selectedAssignmentId],
-      payload.assignments,
-    );
-    setSelectedAssignmentId(resolvedSelectedId);
-  }
+	async function refreshAssignments(nextSelectedId?: string) {
+		const response = await fetch("/api/assignments", { cache: "no-store" });
+		const payload = await readJson<{ assignments: AssignmentBundle[] }>(
+			response,
+		);
+		setAssignments(payload.assignments);
+		setSelectedAssignmentId(
+			resolveSelectedAssignmentId(
+				[nextSelectedId, selectedAssignmentId],
+				payload.assignments,
+			),
+		);
+	}
 
-  function pushActivity(
-    kind: DiagnosticEvent["kind"],
-    label: string,
-    detail: string,
-  ) {
-    setActivity((current) =>
-      [
-        {
-          id: `${Date.now()}-${current.length}`,
-          kind,
-          label,
-          detail,
-          at: new Date().toISOString(),
-        },
-        ...current,
-      ].slice(0, 8),
-    );
-  }
+	function pushActivity(
+		kind: DiagnosticEvent["kind"],
+		label: string,
+		detail: string,
+	) {
+		setActivity((cur) =>
+			[
+				{
+					id: `${Date.now()}-${cur.length}`,
+					kind,
+					label,
+					detail,
+					at: new Date().toISOString(),
+				},
+				...cur,
+			].slice(0, 8),
+		);
+	}
 
-  function runTask(label: string, task: () => Promise<void>) {
-    setError("");
-    setCurrentTask(label);
-    setStatus(label);
-    pushActivity("info", label, "Started");
-    startTransition(async () => {
-      try {
-        await task();
-        pushActivity("success", label, "Completed");
-      } catch (taskError) {
-        const detail =
-          taskError instanceof Error
-            ? taskError.message
-            : "Something went wrong.";
-        setError(detail);
-        setStatus(`${label} failed.`);
-        pushActivity("error", label, detail);
-      } finally {
-        setCurrentTask(null);
-      }
-    });
-  }
+	function runTask(label: string, task: () => Promise<void>) {
+		setError("");
+		setCurrentTask(label);
+		setStatus(label);
+		pushActivity("info", label, "Started");
+		startTransition(async () => {
+			try {
+				await task();
+				pushActivity("success", label, "Completed");
+			} catch (taskError) {
+				const detail =
+					taskError instanceof Error
+						? taskError.message
+						: "Something went wrong.";
+				setError(detail);
+				setStatus(`${label} failed.`);
+				pushActivity("error", label, detail);
+			} finally {
+				setCurrentTask(null);
+			}
+		});
+	}
 
-  function buttonLabel(defaultLabel: string, activeLabel: string) {
-    return currentTask === activeLabel || isPending
-      ? "Working..."
-      : defaultLabel;
-  }
+	function handlePickAssignment(id: string) {
+		setSelectedAssignmentId(id);
+		setPickerOpen(false);
+		setMode("workspace");
+		setActiveTab("grade");
+		setFileQueue([]);
+	}
 
-  function handleBatchGrade(formData: FormData) {
-    if (!selectedBundle) {
-      return;
-    }
+	function handleBackToLanding() {
+		setMode("landing");
+		setFileQueue([]);
+	}
 
-    runTask("Grading submissions independently...", async () => {
-      const response = await fetch(
-        `/api/assignments/${selectedBundle.assignment.id}/submissions`,
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
-      await readJson(response);
-      await refreshAssignments(selectedBundle.assignment.id);
-      setStatus("Batch grading completed.");
-    });
-  }
+	function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
+		const picked = Array.from(e.target.files || []);
+		setFileQueue((prev) => [
+			...prev,
+			...picked.map((f) => ({
+				id: `f_${Math.random().toString(36).slice(2, 8)}`,
+				name: f.name,
+				size: f.size,
+				file: f,
+				status: "queued" as const,
+			})),
+		]);
+		if (fileInputRef.current) fileInputRef.current.value = "";
+	}
 
-  function updateFeedbackDraft(
-    submissionId: string,
-    updater: (result: GradingResultRecord) => GradingResultRecord,
-  ) {
-    setAssignments((current) =>
-      current.map((bundle) => {
-        if (bundle.assignment.id !== selectedAssignmentId) {
-          return bundle;
-        }
+	function removeFile(id: string) {
+		setFileQueue((prev) => prev.filter((f) => f.id !== id));
+	}
 
-        return {
-          ...bundle,
-          results: bundle.results.map((result) =>
-            result.submissionId === submissionId ? updater(result) : result,
-          ),
-        };
-      }),
-    );
-  }
+	function handleBatchGrade() {
+		if (!selectedBundle || fileQueue.length === 0) return;
+		runTask("Grading submissions independently...", async () => {
+			const formData = new FormData();
+			for (const qf of fileQueue) {
+				formData.append("submissionFiles", qf.file);
+			}
+			setGrading(true);
+			const total =
+				fileQueue.length *
+				(selectedBundle.assignment.assignmentProfile.promptSet.length + 2);
+			setProgress({ step: 0, total, label: "", subStep: "Starting..." });
+			try {
+				const response = await fetch(
+					`/api/assignments/${selectedBundle.assignment.id}/submissions`,
+					{ method: "POST", body: formData },
+				);
+				await readJson(response);
+				await refreshAssignments(selectedBundle.assignment.id);
+				setStatus("Batch grading completed.");
+				setActiveTab("results");
+				setFileQueue([]);
+			} finally {
+				setGrading(false);
+				setProgress({ step: 0, total: 0, label: "", subStep: "" });
+			}
+		});
+	}
 
-  function handleSaveFeedback(result: GradingResultRecord) {
-    if (!selectedBundle) {
-      return;
-    }
+	function updateFeedbackDraft(
+		submissionId: string,
+		updater: (result: GradingResultRecord) => GradingResultRecord,
+	) {
+		setAssignments((current) =>
+			current.map((bundle) => {
+				if (bundle.assignment.id !== selectedAssignmentId) return bundle;
+				return {
+					...bundle,
+					results: bundle.results.map((r) =>
+						r.submissionId === submissionId ? updater(r) : r,
+					),
+				};
+			}),
+		);
+	}
 
-    runTask(`Saving feedback for ${result.submissionName}...`, async () => {
-      const response = await fetch(
-        `/api/assignments/${selectedBundle.assignment.id}/results/${result.submissionId}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            feedback: result.feedback,
-            promptFeedback: result.promptResults.map((promptResult) => ({
-              promptId: promptResult.promptId,
-              feedback: promptResult.feedback,
-            })),
-          }),
-        },
-      );
-      await readJson(response);
-      await refreshAssignments(selectedBundle.assignment.id);
-      setStatus("Feedback saved.");
-    });
-  }
+	function handleSaveFeedback(result: GradingResultRecord) {
+		if (!selectedBundle) return;
+		runTask(`Saving feedback for ${result.submissionName}...`, async () => {
+			const response = await fetch(
+				`/api/assignments/${selectedBundle.assignment.id}/results/${result.submissionId}`,
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						feedback: result.feedback,
+						promptFeedback: result.promptResults.map((pr) => ({
+							promptId: pr.promptId,
+							feedback: pr.feedback,
+						})),
+					}),
+				},
+			);
+			await readJson(response);
+			await refreshAssignments(selectedBundle.assignment.id);
+			setStatus("Feedback saved.");
+		});
+	}
 
-  return (
-    <DashboardShell
-      activePage="grading"
-      assignments={assignments}
-      hasOpenAIKey={hasOpenAIKey}
-      title="Apply a saved assignment and grade written submissions."
-      description="Pick a prepared assignment, confirm the prompt set and rubric that will govern scoring, then run isolated grading passes and review prompt-level results."
-      status={status}
-      error={error}
-      currentTask={currentTask}
-      activity={activity}
-    >
-      <section className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
-        <div className="rounded-4xl border border-white/70 bg-white/85 p-6 shadow-[0_20px_60px_rgba(87,61,33,0.08)]">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold">
-                1. Select Prepared Assignment
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Choose the assignment package with a prompt set, shared context,
-                and normalized rubric.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:items-end">
-              <select
-                value={selectedAssignmentId}
-                onChange={(event) => setSelectedAssignmentId(event.target.value)}
-                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none transition focus:border-amber-400"
-              >
-                {assignments.length === 0 ? (
-                  <option value="">No assignments yet</option>
-                ) : null}
-                {assignments.map((bundle) => (
-                  <option
-                    key={bundle.assignment.id}
-                    value={bundle.assignment.id}
-                  >
-                    {bundle.assignment.assignmentName}
-                  </option>
-                ))}
-              </select>
-              <Link
-                href="/assignments"
-                className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
-              >
-                Edit assignments
-              </Link>
-            </div>
-          </div>
+	const recentRuns = assignments.filter((b) => b.results.length > 0);
 
-          {selectedBundle ? (
-            <div className="mt-6 space-y-5">
-              <div className="grid gap-4 sm:grid-cols-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Assignment
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedBundle.assignment.assignmentName}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Grading mode
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedBundle.assignment.normalizedRubric.gradingMode}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Prompts
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedBundle.assignment.assignmentProfile.promptSet.length}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                    Criteria
-                  </div>
-                  <div className="mt-2 text-base font-semibold text-slate-900">
-                    {selectedBundle.assignment.normalizedRubric.dimensions.length}
-                  </div>
-                </div>
-              </div>
+	/* ---------------------------------------------------------------- */
+	/*  Shell props                                                      */
+	/* ---------------------------------------------------------------- */
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-                <div className="text-sm font-medium text-slate-900">
-                  Prompt set
-                </div>
-                <div className="mt-4 grid gap-3">
-                  {selectedBundle.assignment.assignmentProfile.promptSet.map((prompt) => (
-                    <div
-                      key={prompt.id}
-                      className="rounded-2xl border border-slate-200 bg-white p-4"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-base font-semibold text-slate-900">
-                          {prompt.title}
-                        </div>
-                        <span className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 text-xs text-slate-700">
-                          {prompt.type}
-                        </span>
-                        {prompt.maxScore ? (
-                          <span className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 text-xs text-slate-700">
-                            Max {prompt.maxScore}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        {prompt.instructions}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+	const breadcrumbs =
+		mode === "workspace" && selectedBundle
+			? [
+					{ label: "Grading", muted: false },
+					{ label: selectedBundle.assignment.assignmentName, muted: true },
+				]
+			: [{ label: "Grading", muted: false }];
 
-              <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900">
-                      Normalized rubric snapshot
-                    </h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      The rubric applied to each prompt response during grading.
-                    </p>
-                  </div>
-                  <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                    {selectedBundle.assignment.normalizedRubric.rubricId}
-                  </div>
-                </div>
+	const tabs =
+		mode === "workspace"
+			? [
+					{
+						label: "Upload & run",
+						active: activeTab === "grade",
+						onClick: () => setActiveTab("grade"),
+					},
+					{
+						label: "Results",
+						count: selectedBundle?.results.length ?? 0,
+						active: activeTab === "results",
+						onClick: () => setActiveTab("results"),
+					},
+				]
+			: undefined;
 
-                <div className="mt-5 space-y-4">
-                  {selectedBundle.assignment.normalizedRubric.dimensions.map(
-                    (dimension) => (
-                      <div
-                        key={dimension.name}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <div className="text-base font-semibold text-slate-900">
-                              {dimension.name}
-                            </div>
-                            {dimension.descriptor ? (
-                              <p className="mt-1 text-sm leading-6 text-slate-600">
-                                {dimension.descriptor}
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="flex flex-wrap gap-2 text-xs">
-                            <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-700">
-                              {dimension.scope === "global"
-                                ? "Global"
-                                : `Prompts: ${dimension.promptIds.length}`}
-                            </span>
-                            <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-700">
-                              Weight {dimension.weight}
-                            </span>
-                            <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-700">
-                              Max {dimension.scaleMax}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-sm text-slate-600">
-              No prepared assignments are available yet. Create one on the
-              assignments page first.
-            </div>
-          )}
-        </div>
+	const topbarActions =
+		mode === "workspace" && selectedBundle ? (
+			<div style={{ display: "flex", gap: 8 }}>
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm"
+					onClick={() => setPickerOpen(true)}
+				>
+					Switch assignment
+				</button>
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm"
+					onClick={() => downloadResults(selectedBundle)}
+				>
+					Export JSON
+				</button>
+			</div>
+		) : undefined;
 
-        <div className="rounded-4xl border border-white/70 bg-white/85 p-6 shadow-[0_20px_60px_rgba(87,61,33,0.08)]">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold">2. Grade Submissions</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Upload multiple written submissions. The server segments each
-                file by prompt, then grades each prompt in its own isolated run.
-              </p>
-            </div>
-            {selectedBundle ? (
-              <button
-                type="button"
-                onClick={() => downloadResults(selectedBundle)}
-                className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-950"
-              >
-                Export JSON
-              </button>
-            ) : null}
-          </div>
+	/* ---------------------------------------------------------------- */
+	/*  Render                                                           */
+	/* ---------------------------------------------------------------- */
 
-          <form action={handleBatchGrade} className="mt-6 grid gap-4">
-            <label className="grid gap-2 text-sm font-medium text-slate-700">
-              Student submissions
-              <input
-                multiple
-                required
-                name="submissionFiles"
-                type="file"
-                accept=".pdf,.docx,.txt,.md"
-                disabled={!selectedBundle}
-                className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </label>
-            <button
-              disabled={isPending || !selectedBundle}
-              className="inline-flex items-center justify-center rounded-full bg-amber-500 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {buttonLabel(
-                "Grade uploaded batch",
-                "Grading submissions independently...",
-              )}
-            </button>
-          </form>
-        </div>
-      </section>
+	return (
+		<DashboardShell
+			activePage="grading"
+			assignments={assignments}
+			hasOpenAIKey={hasOpenAIKey}
+			title="Grade submissions"
+			description="Pick a prepared assignment, upload student work, run isolated grading passes."
+			status={status}
+			error={error}
+			currentTask={currentTask}
+			activity={activity}
+			selectedAssignmentId={selectedAssignmentId}
+			onSelectAssignment={handlePickAssignment}
+			breadcrumbs={breadcrumbs}
+			tabs={tabs}
+			topbarActions={topbarActions}
+		>
+			{/* Radix Dialog for assignment picker */}
+			<AssignmentPickerDialog
+				open={pickerOpen}
+				onOpenChange={setPickerOpen}
+				assignments={assignments}
+				onPick={handlePickAssignment}
+			/>
 
-      <section className="rounded-4xl border border-white/70 bg-white/85 p-6 shadow-[0_20px_60px_rgba(87,61,33,0.08)]">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold">3. Review Results</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Each submission stores prompt-level segmentation, scoring,
-              evidence, review flags, retrieval sources, and editable feedback.
-            </p>
-          </div>
-          {selectedBundle ? (
-            <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
-              {selectedBundle.results.length} graded submissions
-            </div>
-          ) : null}
-        </div>
+			{mode === "landing" ? (
+				/* ============================================================ */
+				/*  LANDING                                                      */
+				/* ============================================================ */
+				<div>
+					{/* Header row */}
+					<div
+						style={{
+							display: "flex",
+							justifyContent: "space-between",
+							alignItems: "flex-end",
+							gap: 20,
+							flexWrap: "wrap",
+							marginBottom: 28,
+						}}
+					>
+						<div>
+							<div
+								className="caps"
+								style={{ color: "var(--accent)", marginBottom: 10 }}
+							>
+								Grading
+							</div>
+							<h1 className="view-title" style={{ margin: "0 0 10px" }}>
+								Grade a <em>new batch</em>.
+							</h1>
+							<p
+								style={{
+									fontSize: 15,
+									color: "var(--ink-2)",
+									maxWidth: 620,
+									lineHeight: 1.55,
+								}}
+							>
+								Pick an assignment, drop in student submissions, and each one
+								runs in its own isolated pass against the rubric and prompts you
+								already built.
+							</p>
+						</div>
+						<button
+							type="button"
+							className="btn-primary"
+							onClick={() => setPickerOpen(true)}
+						>
+							<IconPlus /> New grading batch
+						</button>
+					</div>
 
-        <div className="mt-6 space-y-5">
-          {selectedBundle?.results.length ? (
-            selectedBundle.results.map((result) => (
-              <article
-                key={result.submissionId}
-                className="rounded-[1.75rem] border border-slate-200 bg-slate-50/70 p-5"
-              >
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.25em] text-slate-500">
-                      {formatDate(result.createdAt)}
-                    </div>
-                    <h3 className="mt-2 text-xl font-semibold text-slate-950">
-                      {result.submissionName}
-                    </h3>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <span className="rounded-full bg-slate-950 px-3 py-1 text-sm font-medium text-white">
-                        {scoreLabel(result)}
-                      </span>
-                      <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-sm text-slate-700">
-                        Confidence {Math.round(result.confidence * 100)}%
-                      </span>
-                      <span
-                        className={`rounded-full px-3 py-1 text-sm ${
-                          result.review.needsHumanReview
-                            ? "bg-rose-100 text-rose-900"
-                            : "bg-emerald-100 text-emerald-900"
-                        }`}
-                      >
-                        {result.review.needsHumanReview
-                          ? "Needs human review"
-                          : "Ready to review"}
-                      </span>
-                    </div>
-                  </div>
+					{/* CTA card */}
+					<div
+						style={{
+							background: "var(--ink-panel)",
+							borderRadius: "var(--radius-lg)",
+							overflow: "hidden",
+							marginBottom: 28,
+						}}
+					>
+						<div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr" }}>
+							<div style={{ padding: "28px 30px" }}>
+								<div
+									className="caps"
+									style={{ color: "var(--accent)", marginBottom: 10 }}
+								>
+									Start here
+								</div>
+								<div
+									className="serif"
+									style={{
+										fontSize: 30,
+										lineHeight: 1.1,
+										letterSpacing: "-0.015em",
+										marginBottom: 10,
+										color: "var(--bg)",
+									}}
+								>
+									Pick an assignment, upload submissions,
+									<br />
+									review results in your voice.
+								</div>
+								<div
+									style={{
+										fontSize: 13,
+										color: "oklch(0.78 0.02 70)",
+										lineHeight: 1.55,
+										marginBottom: 18,
+										maxWidth: 520,
+									}}
+								>
+									Every submission gets its own grading run. Your rubric and
+									prompts are reused; student work never leaks between runs.
+								</div>
+								<button
+									type="button"
+									className="btn-accent"
+									onClick={() => setPickerOpen(true)}
+								>
+									<IconSparkle /> Start new batch
+								</button>
+							</div>
+							<div
+								style={{
+									padding: "28px 30px",
+									background: "oklch(0.24 0.02 70)",
+									display: "flex",
+									flexDirection: "column",
+									gap: 10,
+									justifyContent: "center",
+								}}
+							>
+								<div className="info-row" style={{ color: "var(--bg)" }}>
+									<div className="info-bullet">i.</div>
+									<p style={{ color: "oklch(0.85 0.02 70)", fontSize: 12 }}>
+										<strong style={{ color: "var(--bg)" }}>
+											Pick assignment
+										</strong>{" "}
+										— which rubric to grade against.
+									</p>
+								</div>
+								<div className="info-row">
+									<div className="info-bullet">ii.</div>
+									<p style={{ color: "oklch(0.85 0.02 70)", fontSize: 12 }}>
+										<strong style={{ color: "var(--bg)" }}>
+											Upload submissions
+										</strong>{" "}
+										— pdf, docx, txt.
+									</p>
+								</div>
+								<div className="info-row">
+									<div className="info-bullet">iii.</div>
+									<p style={{ color: "oklch(0.85 0.02 70)", fontSize: 12 }}>
+										<strong style={{ color: "var(--bg)" }}>
+											Run &amp; review
+										</strong>{" "}
+										— edit every feedback block before send.
+									</p>
+								</div>
+							</div>
+						</div>
+					</div>
 
-                  <div className="max-w-xl rounded-3xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
-                    <div className="font-medium text-slate-900">
-                      Overall teacher summary
-                    </div>
-                    <p className="mt-2">{result.feedback.teacherSummary}</p>
-                  </div>
-                </div>
+					{/* Recent runs */}
+					<div
+						style={{
+							marginBottom: 14,
+							display: "flex",
+							justifyContent: "space-between",
+							alignItems: "baseline",
+						}}
+					>
+						<h2
+							className="serif"
+							style={{ fontSize: 26, letterSpacing: "-0.015em", margin: 0 }}
+						>
+							Recent grading runs
+						</h2>
+						{recentRuns.length > 0 && (
+							<span className="caps" style={{ color: "var(--ink-3)" }}>
+								{recentRuns.length} assignment
+								{recentRuns.length === 1 ? "" : "s"}
+							</span>
+						)}
+					</div>
 
-                <div className="mt-5 grid gap-5">
-                  {result.promptResults.map((promptResult) => (
-                    <div
-                      key={`${result.submissionId}-${promptResult.promptId}`}
-                      className="rounded-3xl border border-slate-200 bg-white p-4"
-                    >
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="text-lg font-semibold text-slate-950">
-                              {promptResult.promptTitle}
-                            </div>
-                            <span className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 text-xs text-slate-700">
-                              {promptResult.promptType}
-                            </span>
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-800">
-                              {promptScoreLabel(promptResult)}
-                            </span>
-                            <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-sm text-slate-700">
-                              Segmentation{" "}
-                              {Math.round(
-                                promptResult.segment.segmentationConfidence * 100,
-                              )}
-                              %
-                            </span>
-                            <span
-                              className={`rounded-full px-3 py-1 text-sm ${
-                                promptResult.segment.isMissing
-                                  ? "bg-rose-100 text-rose-900"
-                                  : "bg-sky-100 text-sky-900"
-                              }`}
-                            >
-                              {promptResult.segment.isMissing
-                                ? "Marked missing"
-                                : "Answer found"}
-                            </span>
-                          </div>
-                        </div>
+					{recentRuns.length === 0 ? (
+						<div
+							style={{
+								padding: "50px 20px",
+								background: "var(--bg-sunk)",
+								borderRadius: "var(--radius-lg)",
+								border: "1px dashed var(--line)",
+								textAlign: "center",
+							}}
+						>
+							<div
+								className="serif"
+								style={{ fontSize: 22, color: "var(--ink)", marginBottom: 8 }}
+							>
+								No grading runs yet.
+							</div>
+							<div style={{ fontSize: 13, color: "var(--ink-3)" }}>
+								Start a new batch above to see it listed here.
+							</div>
+						</div>
+					) : (
+						<div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+							{recentRuns.map((bundle) => {
+								const results = bundle.results;
+								const avg = Math.round(
+									(results.reduce(
+										(s, r) => s + r.overallScore / r.scaleMax,
+										0,
+									) /
+										results.length) *
+										100,
+								);
+								return (
+									<button
+										type="button"
+										key={bundle.assignment.id}
+										className="run-summary"
+										onClick={() => handlePickAssignment(bundle.assignment.id)}
+									>
+										<div>
+											<div className="run-summary-title">
+												{bundle.assignment.assignmentName}
+											</div>
+											<div className="run-summary-meta">
+												<span>
+													{bundle.assignment.courseProfile.courseName
+														.split("—")[0]
+														.trim()}
+												</span>
+												<span className="dot" />
+												<span>
+													{results.length} submission
+													{results.length === 1 ? "" : "s"}
+												</span>
+												<span className="dot" />
+												<span>graded {formatDate(results[0].createdAt)}</span>
+											</div>
+										</div>
+										<div className="run-summary-scores">
+											<div style={{ display: "flex", gap: 4 }}>
+												{results.slice(0, 6).map((r) => (
+													<div
+														key={r.submissionId}
+														className="score-pip mono"
+														title={r.submissionName}
+													>
+														{r.overallScore}
+													</div>
+												))}
+											</div>
+											<div style={{ textAlign: "right" }}>
+												<div
+													className="serif"
+													style={{ fontSize: 22, lineHeight: 1 }}
+												>
+													{avg}%
+												</div>
+												<div
+													className="caps"
+													style={{ color: "var(--ink-3)", marginTop: 2 }}
+												>
+													avg
+												</div>
+											</div>
+											<IconChevronRight style={{ color: "var(--ink-3)" }} />
+										</div>
+									</button>
+								);
+							})}
+						</div>
+					)}
+				</div>
+			) : activeTab === "grade" ? (
+				/* ============================================================ */
+				/*  WORKSPACE — Upload & Run                                     */
+				/* ============================================================ */
+				<div>
+					<div style={{ marginBottom: 28 }}>
+						<button
+							type="button"
+							className="btn-ghost btn-sm"
+							style={{ marginBottom: 12 }}
+							onClick={handleBackToLanding}
+						>
+							← grading
+						</button>
+					</div>
 
-                        <div className="max-w-xl rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-                          <div className="font-medium text-slate-900">
-                            Prompt teacher summary
-                          </div>
-                          <p className="mt-2">{promptResult.feedback.teacherSummary}</p>
-                        </div>
-                      </div>
+					<div
+						style={{
+							display: "grid",
+							gridTemplateColumns: "1.3fr 1fr",
+							gap: 20,
+							alignItems: "start",
+						}}
+					>
+						{/* Left: submissions queue */}
+						<div className="card">
+							<div className="metadata-card-title">Submissions queue</div>
+							<div className="card-sub">Accepts .pdf, .docx, .txt, .md</div>
 
-                      {promptResult.segment.notes.length ? (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {promptResult.segment.notes.map((note) => (
-                            <span
-                              key={`${promptResult.promptId}-${note}`}
-                              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-900"
-                            >
-                              {note}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
+							<label className="file-drop" style={{ marginBottom: 14 }}>
+								<input
+									ref={fileInputRef}
+									type="file"
+									multiple
+									style={{ display: "none" }}
+									onChange={handleFilesSelected}
+									accept=".pdf,.docx,.txt,.md"
+								/>
+								<IconUpload style={{ color: "var(--ink-3)" }} />
+								<div className="primary">
+									Drop student submissions or click to select
+								</div>
+								<div className="secondary mono">
+									multiple files · pdf · docx · txt · md
+								</div>
+							</label>
 
-                      <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                        {promptResult.dimensions.map((dimension) => (
-                          <div
-                            key={`${promptResult.promptId}-${dimension.name}`}
-                            className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-base font-semibold text-slate-950">
-                                {dimension.name}
-                              </div>
-                              <div className="rounded-full bg-white px-3 py-1 text-sm font-medium text-slate-800">
-                                {dimension.score}/{dimension.scaleMax}
-                              </div>
-                            </div>
-                            <p className="mt-3 text-sm leading-6 text-slate-600">
-                              {dimension.rationale}
-                            </p>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-                                Confidence {Math.round(dimension.confidence * 100)}%
-                              </span>
-                              {dimension.flags.map((flag) => (
-                                <span
-                                  key={flag}
-                                  className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-900"
-                                >
-                                  {flag}
-                                </span>
-                              ))}
-                            </div>
-                            {dimension.evidenceSpans.length ? (
-                              <div className="mt-4 space-y-2">
-                                {dimension.evidenceSpans.map((spanId) => (
-                                  <div
-                                    key={spanId}
-                                    className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-600"
-                                  >
-                                    <span className="font-medium text-slate-900">
-                                      {spanId}
-                                    </span>{" "}
-                                    {promptResult.segment.evidenceLookup[spanId] ||
-                                      "Span excerpt unavailable."}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
+							{fileQueue.length > 0 ? (
+								<div className="run-list">
+									{fileQueue.map((f) => (
+										<div key={f.id} className="run-item">
+											<div
+												className={`run-status ${f.status === "done" ? "done" : ""} ${f.status === "running" ? "active" : ""}`}
+											>
+												{f.status === "done" && <IconCheck />}
+											</div>
+											<div>
+												<div className="run-text">{f.name}</div>
+												<div className="run-sub">
+													{f.status === "queued" && "queued"}
+													{f.status === "running" && "running…"}
+													{f.status === "done" && "graded · ready for review"}
+													{f.status === "error" && "error"}
+												</div>
+											</div>
+											<div style={{ display: "flex", gap: 4 }}>
+												{f.status !== "running" && (
+													<button
+														type="button"
+														className="icon-btn"
+														onClick={() => removeFile(f.id)}
+													>
+														<IconX />
+													</button>
+												)}
+											</div>
+										</div>
+									))}
+								</div>
+							) : (
+								<div
+									style={{
+										textAlign: "center",
+										padding: "20px 10px",
+										color: "var(--ink-3)",
+										fontSize: 13,
+									}}
+								>
+									No submissions queued. Add files above.
+								</div>
+							)}
 
-                      <div className="mt-5 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-                        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-sm font-medium text-slate-900">
-                            Review reasons
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {promptResult.review.reasons.length ? (
-                              promptResult.review.reasons.map((reason) => (
-                                <span
-                                  key={reason}
-                                  className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs text-rose-900"
-                                >
-                                  {reason}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm text-slate-500">
-                                No prompt review flags.
-                              </span>
-                            )}
-                          </div>
+							<div
+								style={{
+									display: "flex",
+									justifyContent: "flex-end",
+									gap: 10,
+									paddingTop: 20,
+								}}
+							>
+								<button
+									type="button"
+									className="btn-secondary"
+									disabled={grading || fileQueue.length === 0}
+									onClick={() => setFileQueue([])}
+								>
+									Clear queue
+								</button>
+								<button
+									type="button"
+									className="btn-primary"
+									disabled={grading || fileQueue.length === 0 || isPending}
+									onClick={handleBatchGrade}
+									style={{ minWidth: 180 }}
+								>
+									{isPending || grading ? (
+										"Grading…"
+									) : (
+										<>
+											Run graded batch <IconArrow />
+										</>
+									)}
+								</button>
+							</div>
 
-                          <div className="mt-5 text-sm font-medium text-slate-900">
-                            Retrieved sources
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {promptResult.retrievalSources.length ? (
-                              promptResult.retrievalSources.map((source) => (
-                                <span
-                                  key={source}
-                                  className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs text-teal-900"
-                                >
-                                  {source}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm text-slate-500">
-                                No file-search sources were surfaced in the response.
-                              </span>
-                            )}
-                          </div>
-                        </div>
+							{grading && progress.total > 0 && (
+								<div style={{ marginTop: 14 }}>
+									<div className="mini-progress">
+										<div
+											style={{
+												width: `${(progress.step / progress.total) * 100}%`,
+											}}
+										/>
+									</div>
+									<div
+										style={{
+											marginTop: 8,
+											fontSize: 12,
+											color: "var(--ink-3)",
+											fontFamily: "var(--mono)",
+										}}
+									>
+										{progress.label} · {progress.subStep}
+									</div>
+								</div>
+							)}
+						</div>
 
-                        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="grid gap-4">
-                            <label className="grid gap-2 text-sm font-medium text-slate-700">
-                              Prompt teacher summary
-                              <textarea
-                                rows={4}
-                                value={promptResult.feedback.teacherSummary}
-                                onChange={(event) =>
-                                  updateFeedbackDraft(result.submissionId, (current) => ({
-                                    ...current,
-                                    promptResults: current.promptResults.map((entry) =>
-                                      entry.promptId === promptResult.promptId
-                                        ? {
-                                            ...entry,
-                                            feedback: {
-                                              ...entry.feedback,
-                                              teacherSummary: event.target.value,
-                                            },
-                                          }
-                                        : entry,
-                                    ),
-                                  }))
-                                }
-                                className="rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-400"
-                              />
-                            </label>
-                            <label className="grid gap-2 text-sm font-medium text-slate-700">
-                              Prompt student feedback points
-                              <textarea
-                                rows={4}
-                                value={promptResult.feedback.studentFeedback.join("\n")}
-                                onChange={(event) =>
-                                  updateFeedbackDraft(result.submissionId, (current) => ({
-                                    ...current,
-                                    promptResults: current.promptResults.map((entry) =>
-                                      entry.promptId === promptResult.promptId
-                                        ? {
-                                            ...entry,
-                                            feedback: {
-                                              ...entry.feedback,
-                                              studentFeedback: event.target.value
-                                                .split("\n")
-                                                .map((line) => line.trim())
-                                                .filter(Boolean),
-                                            },
-                                          }
-                                        : entry,
-                                    ),
-                                  }))
-                                }
-                                className="rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-400"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+						{/* Right: info panel */}
+						<div
+							style={{
+								display: "flex",
+								flexDirection: "column",
+								gap: 16,
+								position: "sticky",
+								top: 80,
+							}}
+						>
+							<div className="card">
+								<div className="metadata-card-title" style={{ fontSize: 20 }}>
+									What the grader does
+								</div>
+								<hr className="hr" />
+								<div className="info-list">
+									<div className="info-row">
+										<div className="info-bullet">i.</div>
+										<p>
+											<strong>Segments</strong> each submission into
+											prompt-specific answers using the prompt set you reviewed.
+										</p>
+									</div>
+									<div className="info-row">
+										<div className="info-bullet">ii.</div>
+										<p>
+											<strong>Grades each prompt</strong> independently against
+											the dimensions scoped to it.
+										</p>
+									</div>
+									<div className="info-row">
+										<div className="info-bullet">iii.</div>
+										<p>
+											<strong>Aggregates</strong> the overall score per the
+											weights you set in the rubric matrix.
+										</p>
+									</div>
+									<div className="info-row">
+										<div className="info-bullet">iv.</div>
+										<p>
+											<strong>Drafts feedback</strong> in your voice — a teacher
+											summary and student-facing notes.
+										</p>
+									</div>
+								</div>
+							</div>
 
-                <div className="mt-5 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-                  <div className="rounded-3xl border border-slate-200 bg-white p-4">
-                    <div className="text-sm font-medium text-slate-900">
-                      Overall review reasons
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {result.review.reasons.length ? (
-                        result.review.reasons.map((reason) => (
-                          <span
-                            key={reason}
-                            className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs text-rose-900"
-                          >
-                            {reason}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-slate-500">
-                          No review flags.
-                        </span>
-                      )}
-                    </div>
+							{selectedBundle && selectedBundle.results.length > 0 && (
+								<div className="card" style={{ background: "var(--bg-sunk)" }}>
+									<div
+										style={{
+											display: "flex",
+											justifyContent: "space-between",
+											alignItems: "center",
+											marginBottom: 8,
+										}}
+									>
+										<div style={{ fontSize: 13, fontWeight: 500 }}>
+											Previously graded
+										</div>
+										<span className="chip">
+											{selectedBundle.results.length}
+										</span>
+									</div>
+									<div
+										style={{
+											fontSize: 12,
+											color: "var(--ink-3)",
+											lineHeight: 1.5,
+											marginBottom: 10,
+										}}
+									>
+										{selectedBundle.results.length} submission
+										{selectedBundle.results.length === 1 ? "" : "s"} already
+										graded for this assignment.
+									</div>
+									<button
+										type="button"
+										className="btn-secondary btn-sm"
+										style={{ width: "100%" }}
+										onClick={() => setActiveTab("results")}
+									>
+										Review results <IconArrow />
+									</button>
+								</div>
+							)}
+						</div>
+					</div>
+				</div>
+			) : (
+				/* ============================================================ */
+				/*  WORKSPACE — Results                                          */
+				/* ============================================================ */
+				<div>
+					<div style={{ marginBottom: 16 }}>
+						<button
+							type="button"
+							className="btn-ghost btn-sm"
+							onClick={handleBackToLanding}
+						>
+							← grading
+						</button>
+					</div>
 
-                    <div className="mt-5 text-sm font-medium text-slate-900">
-                      Submission-level retrieved sources
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {result.retrievalSources.length ? (
-                        result.retrievalSources.map((source) => (
-                          <span
-                            key={source}
-                            className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs text-teal-900"
-                          >
-                            {source}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-slate-500">
-                          No retrieved sources.
-                        </span>
-                      )}
-                    </div>
-                  </div>
+					{selectedBundle?.results.length ? (
+						<div
+							style={{
+								display: "grid",
+								gridTemplateColumns: "260px 1fr",
+								gap: 20,
+							}}
+						>
+							{/* Sidebar list */}
+							<div
+								style={{
+									background: "var(--paper)",
+									border: "1px solid var(--line)",
+									borderRadius: "var(--radius-lg)",
+									position: "sticky",
+									top: 80,
+									height: "fit-content",
+									maxHeight: "calc(100vh - 100px)",
+									overflowY: "auto",
+								}}
+							>
+								<div
+									style={{
+										padding: 16,
+										borderBottom: "1px solid var(--line-soft)",
+									}}
+								>
+									<div
+										className="mono"
+										style={{
+											fontSize: 10,
+											textTransform: "uppercase",
+											letterSpacing: "0.08em",
+											color: "var(--ink-3)",
+										}}
+									>
+										Submissions
+									</div>
+									<div
+										style={{
+											fontSize: 15,
+											fontWeight: 600,
+											color: "var(--ink)",
+											marginTop: 4,
+										}}
+									>
+										{selectedBundle.results.length} graded
+									</div>
+								</div>
+								<div style={{ padding: 8 }}>
+									{selectedBundle.results.map((result, index) => (
+										<button
+											key={result.submissionId}
+											type="button"
+											onClick={() => setSelectedResultIndex(index)}
+											style={{
+												width: "100%",
+												textAlign: "left",
+												background:
+													selectedResultIndex === index
+														? "var(--accent-soft)"
+														: "transparent",
+												border: "none",
+												borderRadius: "var(--radius)",
+												padding: "10px 12px",
+												cursor: "pointer",
+												marginBottom: 4,
+												transition: "background 0.15s",
+											}}
+										>
+											<div
+												style={{
+													fontSize: 13,
+													fontWeight: 500,
+													color: "var(--ink)",
+													marginBottom: 4,
+												}}
+											>
+												{result.submissionName}
+											</div>
+											<div style={{ fontSize: 11, color: "var(--ink-3)" }}>
+												{scoreLabel(result)}
+											</div>
+										</button>
+									))}
+								</div>
+							</div>
 
-                  <div className="rounded-3xl border border-slate-200 bg-white p-4">
-                    <div className="grid gap-4">
-                      <label className="grid gap-2 text-sm font-medium text-slate-700">
-                        Overall teacher-facing summary
-                        <textarea
-                          rows={4}
-                          value={result.feedback.teacherSummary}
-                          onChange={(event) =>
-                            updateFeedbackDraft(result.submissionId, (current) => ({
-                              ...current,
-                              feedback: {
-                                ...current.feedback,
-                                teacherSummary: event.target.value,
-                              },
-                            }))
-                          }
-                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-amber-400"
-                        />
-                      </label>
-                      <label className="grid gap-2 text-sm font-medium text-slate-700">
-                        Overall student feedback points
-                        <textarea
-                          rows={5}
-                          value={result.feedback.studentFeedback.join("\n")}
-                          onChange={(event) =>
-                            updateFeedbackDraft(result.submissionId, (current) => ({
-                              ...current,
-                              feedback: {
-                                ...current.feedback,
-                                studentFeedback: event.target.value
-                                  .split("\n")
-                                  .map((line) => line.trim())
-                                  .filter(Boolean),
-                              },
-                            }))
-                          }
-                          className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-amber-400"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => handleSaveFeedback(result)}
-                        disabled={isPending}
-                        className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-900 transition hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {buttonLabel(
-                          "Save feedback edits",
-                          `Saving feedback for ${result.submissionName}...`,
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            ))
-          ) : (
-            <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm text-slate-600">
-              Select an assignment and run a batch to populate the review
-              workspace.
-            </div>
-          )}
-        </div>
-      </section>
-    </DashboardShell>
-  );
+							{/* Detail pane */}
+							{(() => {
+								const result = selectedBundle.results[selectedResultIndex];
+								if (!result) return null;
+								return (
+									<div style={{ display: "grid", gap: 24 }}>
+										{/* Score header card */}
+										<div
+											style={{
+												background: "var(--paper)",
+												border: "1px solid var(--line)",
+												borderRadius: "var(--radius-lg)",
+												padding: 28,
+											}}
+										>
+											<div
+												className="mono"
+												style={{
+													fontSize: 10,
+													textTransform: "uppercase",
+													letterSpacing: "0.08em",
+													color: "var(--ink-3)",
+													marginBottom: 8,
+												}}
+											>
+												{formatDate(result.createdAt)}
+											</div>
+											<h2
+												className="serif"
+												style={{
+													fontSize: 24,
+													color: "var(--ink)",
+													marginBottom: 16,
+												}}
+											>
+												{result.submissionName}
+											</h2>
+											<div style={{ marginBottom: 20 }}>
+												<div
+													className="serif"
+													style={{
+														fontSize: 42,
+														lineHeight: 1,
+														color: "var(--ink)",
+													}}
+												>
+													{result.overallScore}
+													<span style={{ fontSize: 22, color: "var(--ink-3)" }}>
+														/{result.scaleMax}
+													</span>
+												</div>
+											</div>
+											<div
+												style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+											>
+												<span
+													className="chip"
+													style={{
+														background: "var(--bg-sunk)",
+														border: "1px solid var(--line-soft)",
+														color: "var(--ink-3)",
+														padding: "6px 12px",
+														borderRadius: "var(--radius-sm)",
+														fontSize: 12,
+													}}
+												>
+													Confidence {Math.round(result.confidence * 100)}%
+												</span>
+												<span
+													className="chip"
+													style={{
+														background: result.review.needsHumanReview
+															? "oklch(0.95 0.05 30)"
+															: "oklch(0.95 0.05 150)",
+														color: result.review.needsHumanReview
+															? "oklch(0.45 0.15 30)"
+															: "oklch(0.35 0.15 150)",
+														padding: "6px 12px",
+														borderRadius: "var(--radius-sm)",
+														fontSize: 12,
+													}}
+												>
+													{result.review.needsHumanReview
+														? "Needs human review"
+														: "Ready to review"}
+												</span>
+											</div>
+											<div
+												style={{
+													background: "var(--bg-sunk)",
+													border: "1px solid var(--line-soft)",
+													borderRadius: "var(--radius)",
+													padding: 16,
+													marginTop: 20,
+													fontSize: 13,
+													lineHeight: 1.65,
+													color: "var(--ink-2)",
+												}}
+											>
+												<div
+													style={{
+														fontWeight: 600,
+														color: "var(--ink)",
+														marginBottom: 8,
+													}}
+												>
+													Overall teacher summary
+												</div>
+												{result.feedback.teacherSummary}
+											</div>
+										</div>
+
+										{/* Prompt results */}
+										{result.promptResults.map((pr) => (
+											<div
+												key={`${result.submissionId}-${pr.promptId}`}
+												style={{
+													background: "var(--paper)",
+													border: "1px solid var(--line)",
+													borderRadius: "var(--radius-lg)",
+													padding: 24,
+												}}
+											>
+												<div style={{ marginBottom: 16 }}>
+													<h3
+														className="serif"
+														style={{
+															fontSize: 19,
+															color: "var(--ink)",
+															marginBottom: 8,
+														}}
+													>
+														{pr.promptTitle}
+													</h3>
+													<div
+														style={{
+															display: "flex",
+															gap: 6,
+															flexWrap: "wrap",
+														}}
+													>
+														<span
+															className="chip"
+															style={{
+																background: "var(--accent-soft)",
+																color: "var(--accent)",
+																padding: "4px 10px",
+																borderRadius: "var(--radius-sm)",
+																fontSize: 11,
+																fontWeight: 500,
+															}}
+														>
+															{pr.promptType}
+														</span>
+														<span
+															className="chip"
+															style={{
+																background: "var(--bg-sunk)",
+																border: "1px solid var(--line-soft)",
+																color: "var(--ink-3)",
+																padding: "4px 10px",
+																borderRadius: "var(--radius-sm)",
+																fontSize: 11,
+																fontWeight: 500,
+															}}
+														>
+															{promptScoreLabel(pr)}
+														</span>
+													</div>
+												</div>
+												<div
+													style={{
+														display: "grid",
+														gridTemplateColumns:
+															"repeat(auto-fit, minmax(280px, 1fr))",
+														gap: 12,
+														marginBottom: 20,
+													}}
+												>
+													{pr.dimensions.map((dim) => (
+														<div
+															key={`${pr.promptId}-${dim.name}`}
+															style={{
+																background: "var(--bg-sunk)",
+																border: "1px solid var(--line-soft)",
+																borderRadius: "var(--radius)",
+																padding: 16,
+															}}
+														>
+															<div
+																style={{
+																	display: "flex",
+																	justifyContent: "space-between",
+																	alignItems: "center",
+																	marginBottom: 12,
+																}}
+															>
+																<div
+																	style={{
+																		fontSize: 14,
+																		fontWeight: 600,
+																		color: "var(--ink)",
+																	}}
+																>
+																	{dim.name}
+																</div>
+																<div
+																	style={{
+																		background: "var(--paper)",
+																		padding: "4px 10px",
+																		borderRadius: "var(--radius-sm)",
+																		fontSize: 13,
+																		fontWeight: 600,
+																		color: "var(--ink)",
+																	}}
+																>
+																	{dim.score}/{dim.scaleMax}
+																</div>
+															</div>
+															<p
+																style={{
+																	fontSize: 13,
+																	lineHeight: 1.65,
+																	color: "var(--ink-2)",
+																	marginBottom: 12,
+																}}
+															>
+																{dim.rationale}
+															</p>
+															<span
+																className="chip"
+																style={{
+																	background: "var(--paper)",
+																	border: "1px solid var(--line-soft)",
+																	color: "var(--ink-3)",
+																	padding: "4px 8px",
+																	borderRadius: "var(--radius-sm)",
+																	fontSize: 10,
+																}}
+															>
+																Confidence {Math.round(dim.confidence * 100)}%
+															</span>
+														</div>
+													))}
+												</div>
+												<div
+													style={{
+														background: "var(--bg-sunk)",
+														border: "1px solid var(--line-soft)",
+														borderRadius: "var(--radius)",
+														padding: 16,
+													}}
+												>
+													<div
+														style={{
+															fontSize: 13,
+															fontWeight: 600,
+															color: "var(--ink)",
+															marginBottom: 10,
+														}}
+													>
+														Teacher summary
+													</div>
+													<div
+														style={{
+															fontSize: 13,
+															lineHeight: 1.65,
+															color: "var(--ink-2)",
+														}}
+													>
+														{pr.feedback.teacherSummary}
+													</div>
+												</div>
+											</div>
+										))}
+
+										{/* Overall feedback editing */}
+										<div
+											style={{
+												background: "var(--paper)",
+												border: "1px solid var(--line)",
+												borderRadius: "var(--radius-lg)",
+												padding: 24,
+											}}
+										>
+											<div style={{ display: "grid", gap: 12 }}>
+												<label style={{ display: "grid", gap: 6 }}>
+													<span
+														style={{
+															fontSize: 12,
+															fontWeight: 600,
+															color: "var(--ink-2)",
+														}}
+													>
+														Overall teacher-facing summary
+													</span>
+													<textarea
+														rows={4}
+														value={result.feedback.teacherSummary}
+														onChange={(e) =>
+															updateFeedbackDraft(result.submissionId, (c) => ({
+																...c,
+																feedback: {
+																	...c.feedback,
+																	teacherSummary: e.target.value,
+																},
+															}))
+														}
+														style={{
+															background: "var(--bg-sunk)",
+															border: "1px solid var(--line-soft)",
+															borderRadius: "var(--radius)",
+															padding: "10px 12px",
+															fontSize: 13,
+															lineHeight: 1.5,
+															color: "var(--ink)",
+															outline: "none",
+														}}
+													/>
+												</label>
+												<label style={{ display: "grid", gap: 6 }}>
+													<span
+														style={{
+															fontSize: 12,
+															fontWeight: 600,
+															color: "var(--ink-2)",
+														}}
+													>
+														Overall student feedback points
+													</span>
+													<textarea
+														rows={5}
+														value={result.feedback.studentFeedback.join("\n")}
+														onChange={(e) =>
+															updateFeedbackDraft(result.submissionId, (c) => ({
+																...c,
+																feedback: {
+																	...c.feedback,
+																	studentFeedback: e.target.value
+																		.split("\n")
+																		.map((l) => l.trim())
+																		.filter(Boolean),
+																},
+															}))
+														}
+														style={{
+															background: "var(--bg-sunk)",
+															border: "1px solid var(--line-soft)",
+															borderRadius: "var(--radius)",
+															padding: "10px 12px",
+															fontSize: 13,
+															lineHeight: 1.5,
+															color: "var(--ink)",
+															outline: "none",
+														}}
+													/>
+												</label>
+												<button
+													type="button"
+													onClick={() => handleSaveFeedback(result)}
+													disabled={isPending}
+													className="btn-secondary"
+													style={{ justifySelf: "end" }}
+												>
+													{isPending ? "Saving…" : "Save feedback edits"}
+												</button>
+											</div>
+										</div>
+									</div>
+								);
+							})()}
+						</div>
+					) : (
+						<div
+							style={{
+								background: "var(--bg-sunk)",
+								border: "2px dashed var(--line-soft)",
+								borderRadius: "var(--radius-lg)",
+								padding: 64,
+								textAlign: "center",
+								color: "var(--ink-3)",
+								fontSize: 14,
+							}}
+						>
+							No graded submissions yet. Upload files and run a batch to see
+							results here.
+						</div>
+					)}
+				</div>
+			)}
+		</DashboardShell>
+	);
 }
