@@ -3,9 +3,21 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 
-function sanitizeNextPath(value: string | null) {
+function getDefaultNextPath(type: EmailOtpType | null) {
+  if (type === "invite") {
+    return "/reset-password?mode=invite";
+  }
+
+  if (type === "recovery") {
+    return "/reset-password?mode=recovery";
+  }
+
+  return "/assignments";
+}
+
+function sanitizeNextPath(value: string | null, type: EmailOtpType | null) {
   if (!value || !value.startsWith("/")) {
-    return "/assignments";
+    return getDefaultNextPath(type);
   }
 
   return value;
@@ -15,13 +27,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = sanitizeNextPath(searchParams.get("next"));
+  const next = sanitizeNextPath(searchParams.get("next"), type);
   const redirectTo = request.nextUrl.clone();
+  const nextUrl = new URL(next, request.nextUrl.origin);
 
-  redirectTo.pathname = next;
-  redirectTo.searchParams.delete("token_hash");
-  redirectTo.searchParams.delete("type");
-  redirectTo.searchParams.delete("next");
+  redirectTo.pathname = nextUrl.pathname;
+  redirectTo.search = nextUrl.search;
 
   if (tokenHash && type) {
     const supabase = await createClient();
@@ -35,10 +46,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  redirectTo.pathname = "/login";
-  redirectTo.searchParams.set(
-    "error",
+  const errorUrl = request.nextUrl.clone();
+  errorUrl.pathname = "/auth/error";
+  errorUrl.search = "";
+  errorUrl.searchParams.set("error", "access_denied");
+  errorUrl.searchParams.set(
+    "error_description",
     "The confirmation link is invalid or has expired.",
   );
-  return NextResponse.redirect(redirectTo);
+
+  if (type) {
+    errorUrl.searchParams.set("type", type);
+  }
+
+  return NextResponse.redirect(errorUrl);
 }

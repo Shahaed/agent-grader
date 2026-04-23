@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AuthHashResolver } from "@/components/auth-hash-resolver";
 import { AuthShell } from "@/components/auth-shell";
 import { getSessionUser } from "@/lib/supabase/server";
 
@@ -34,6 +35,8 @@ export default async function LoginPage({
       message={message}
       error={error}
     >
+      <AuthHashResolver />
+
       <form className="grid gap-4">
         <div className="grid gap-1.5">
           <label htmlFor="email" className="caps">

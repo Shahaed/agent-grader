@@ -17,20 +17,31 @@ export default async function ResetPasswordPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const session = await getSessionUser();
-
-  if (!session?.user) {
-    redirect("/login?error=Your+reset+link+has+expired.+Request+a+new+one.");
-  }
-
   const resolvedSearchParams = await searchParams;
   const message = readParam(resolvedSearchParams.message);
   const error = readParam(resolvedSearchParams.error);
+  const mode = readParam(resolvedSearchParams.mode);
+  const isInviteFlow = mode === "invite";
+  const session = await getSessionUser();
+
+  if (!session?.user) {
+    if (isInviteFlow) {
+      redirect(
+        "/auth/error?error=access_denied&error_code=otp_expired&error_description=Your+invitation+link+is+invalid+or+has+expired.",
+      );
+    }
+
+    redirect("/login?error=Your+reset+link+has+expired.+Request+a+new+one.");
+  }
 
   return (
     <AuthShell
-      title="Choose a new password"
-      description="Your recovery session is active. Save a new password to continue into the grading workspace."
+      title={isInviteFlow ? "Create your password" : "Choose a new password"}
+      description={
+        isInviteFlow
+          ? "Your invitation is active. Set a password to finish account setup and continue into the grading workspace."
+          : "Your recovery session is active. Save a new password to continue into the grading workspace."
+      }
       message={message}
       error={error}
     >
@@ -64,7 +75,7 @@ export default async function ResetPasswordPage({
         </div>
 
         <button formAction={updatePassword} className="btn btn-primary" type="submit">
-          Update password
+          {isInviteFlow ? "Create account" : "Update password"}
         </button>
       </form>
 
