@@ -1,6 +1,3 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
-
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { extractTextFromFile } from "@/lib/file-text";
@@ -11,12 +8,16 @@ import {
   segmentationOutputSchema,
 } from "@/lib/schemas";
 import {
-  assignmentAssetDir,
   loadAssignment,
   loadAssignmentBundle,
   saveAssignment,
   saveResult,
+  uploadStoredAsset,
 } from "@/lib/storage";
+import {
+  requireSessionUser,
+  type AuthenticatedSupabaseContext,
+} from "@/lib/supabase/server";
 import type {
   AssignmentPrompt,
   AssignmentRecord,
@@ -56,21 +57,20 @@ function buildRetrievalFilters(assignmentId: string, courseLevel: string) {
 async function persistSubmissionFile(
   assignmentId: string,
   file: File,
+  context: AuthenticatedSupabaseContext,
 ): Promise<StoredAsset & { bytes: Buffer }> {
   const bytes = Buffer.from(await file.arrayBuffer());
-  const safeName = `${Date.now()}-${file.name}`;
-  const localPath = path.join(assignmentAssetDir(assignmentId), "submission", safeName);
-  await fs.mkdir(path.dirname(localPath), { recursive: true });
-  await fs.writeFile(localPath, bytes);
+  const asset = await uploadStoredAsset({
+    assignmentId,
+    assetType: "submission",
+    fileName: file.name,
+    bytes,
+    mimeType: file.type || "application/octet-stream",
+    context,
+  });
 
   return {
-    id: createId("asset"),
-    assetType: "submission",
-    name: file.name,
-    mimeType: file.type || "application/octet-stream",
-    size: bytes.byteLength,
-    localPath,
-    createdAt: isoNow(),
+    ...asset,
     bytes,
   };
 }
@@ -501,8 +501,12 @@ function aggregatePromptResults(
   };
 }
 
-async function gradeSingleSubmission(assignment: AssignmentRecord, file: File) {
-  const sourceAsset = await persistSubmissionFile(assignment.id, file);
+async function gradeSingleSubmission(
+  assignment: AssignmentRecord,
+  file: File,
+  context: AuthenticatedSupabaseContext,
+) {
+  const sourceAsset = await persistSubmissionFile(assignment.id, file, context);
   const submissionText = await extractTextFromFile(file);
   const submissionId = createId("submission");
   const segmentation = await segmentSubmission(
@@ -565,7 +569,7 @@ async function gradeSingleSubmission(assignment: AssignmentRecord, file: File) {
     },
   });
 
-  await saveResult(assignment.id, result);
+  await saveResult(assignment.id, result, context);
   return result;
 }
 
@@ -574,15 +578,16 @@ export async function gradeSubmissionBatch(assignmentId: string, files: File[]) 
     throw new Error("Upload at least one student submission.");
   }
 
-  const assignment = await loadAssignment(assignmentId);
+  const context = await requireSessionUser();
+  const assignment = await loadAssignment(assignmentId, context);
   const results: GradingResultRecord[] = [];
 
   for (const file of files) {
-    results.push(await gradeSingleSubmission(assignment, file));
+    results.push(await gradeSingleSubmission(assignment, file, context));
   }
 
   assignment.updatedAt = isoNow();
-  await saveAssignment(assignment);
+  await saveAssignment(assignment, context);
 
   return results;
 }
@@ -598,7 +603,8 @@ export async function updateResultFeedback(
     }>;
   },
 ) {
-  const bundle = await loadAssignmentBundle(assignmentId);
+  const context = await requireSessionUser();
+  const bundle = await loadAssignmentBundle(assignmentId, context);
   const result = bundle.results.find((entry) => entry.submissionId === submissionId);
 
   if (!result) {
@@ -618,6 +624,6 @@ export async function updateResultFeedback(
       : promptResult;
   });
 
-  await saveResult(assignmentId, result);
+  await saveResult(assignmentId, result, context);
   return result;
 }

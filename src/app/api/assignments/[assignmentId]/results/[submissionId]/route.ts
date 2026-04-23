@@ -1,7 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import { updateResultFeedback } from "@/lib/grading-service";
+import { getSessionUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +9,9 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ assignmentId: string; submissionId: string }> },
 ) {
-  const { isAuthenticated, userId } = await auth();
+  const session = await getSessionUser();
 
-  if (!isAuthenticated || !userId) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 

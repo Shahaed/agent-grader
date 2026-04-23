@@ -1,6 +1,3 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
-
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { extractTextFromFile } from "@/lib/file-text";
@@ -11,10 +8,16 @@ import {
   promptSetSchema,
 } from "@/lib/schemas";
 import {
-  assignmentAssetDir,
+  deleteStoredAsset,
+  downloadStoredAsset,
   loadAssignment,
   saveAssignment,
+  uploadStoredAsset,
 } from "@/lib/storage";
+import {
+  requireSessionUser,
+  type AuthenticatedSupabaseContext,
+} from "@/lib/supabase/server";
 import type {
   AssetType,
   AssignmentPrompt,
@@ -30,17 +33,8 @@ import {
   inferLevelProfile,
   isoNow,
   parseJson,
-  slugify,
   sumRubricScale,
 } from "@/lib/utils";
-
-interface SavedLocalFile {
-  bytes: Buffer;
-  localPath: string;
-  name: string;
-  mimeType: string;
-  size: number;
-}
 
 function buildPromptSummary(promptSet: AssignmentPrompt[]) {
   return promptSet
@@ -87,27 +81,6 @@ function ensureRubricPromptReferences(
       promptIds: [],
     };
   });
-}
-
-async function saveLocalFile(
-  assignmentId: string,
-  assetType: AssetType,
-  fileName: string,
-  bytes: Buffer,
-  mimeType: string,
-) {
-  const safeName = `${Date.now()}-${slugify(path.basename(fileName, path.extname(fileName))) || "upload"}${path.extname(fileName)}`;
-  const localPath = path.join(assignmentAssetDir(assignmentId), assetType, safeName);
-  await fs.mkdir(path.dirname(localPath), { recursive: true });
-  await fs.writeFile(localPath, bytes);
-
-  return {
-    bytes,
-    localPath,
-    name: fileName,
-    mimeType,
-    size: bytes.byteLength,
-  } satisfies SavedLocalFile;
 }
 
 async function uploadContextFile(
@@ -288,47 +261,39 @@ async function writeGeneratedAsset(
   assetType: "prompt" | "anchor",
   fileName: string,
   body: string,
+  context: AuthenticatedSupabaseContext,
+  uploadedAssets?: StoredAsset[],
 ) {
   const bytes = Buffer.from(body, "utf8");
   const existingAsset = findAsset(record, assetType);
-
-  if (existingAsset) {
-    await fs.mkdir(path.dirname(existingAsset.localPath), { recursive: true });
-    await fs.writeFile(existingAsset.localPath, bytes);
-    existingAsset.name = fileName;
-    existingAsset.mimeType = "text/plain";
-    existingAsset.size = bytes.byteLength;
-    return {
-      asset: existingAsset,
-      bytes,
-    };
-  }
-
-  const saved = await saveLocalFile(
-    record.id,
+  const asset = await uploadStoredAsset({
+    assignmentId: record.id,
     assetType,
     fileName,
     bytes,
-    "text/plain",
-  );
-
-  const asset: StoredAsset = {
-    id: createId("asset"),
-    assetType,
-    name: saved.name,
     mimeType: "text/plain",
-    size: saved.size,
-    localPath: saved.localPath,
-    createdAt: isoNow(),
-  };
-  record.assets.push(asset);
+    existingAsset,
+    context,
+  });
+
+  if (existingAsset) {
+    Object.assign(existingAsset, asset);
+  } else {
+    record.assets.push(asset);
+    uploadedAssets?.push(asset);
+  }
+
   return {
-    asset,
+    asset: existingAsset ?? asset,
     bytes,
   };
 }
 
-async function rebuildVectorStore(record: AssignmentRecord) {
+async function rebuildVectorStore(
+  record: AssignmentRecord,
+  context: AuthenticatedSupabaseContext,
+  uploadedAssets?: StoredAsset[],
+) {
   const client = getOpenAIClient();
   const previousVectorStoreId = record.vectorStoreId;
   const vectorStore = await client.vectorStores.create({
@@ -340,6 +305,8 @@ async function rebuildVectorStore(record: AssignmentRecord) {
     "prompt",
     `${record.id}-prompt.txt`,
     buildPromptAssetText(record),
+    context,
+    uploadedAssets,
   );
   promptAsset.asset.openAiFileId = await uploadContextFile(
     record.id,
@@ -356,6 +323,8 @@ async function rebuildVectorStore(record: AssignmentRecord) {
     "anchor",
     `${record.id}-anchor.txt`,
     buildAnchorAssetText(record),
+    context,
+    uploadedAssets,
   );
   anchorAsset.asset.openAiFileId = await uploadContextFile(
     record.id,
@@ -368,7 +337,7 @@ async function rebuildVectorStore(record: AssignmentRecord) {
   );
 
   for (const asset of record.assets.filter((entry) => entry.assetType === "reading")) {
-    const bytes = await fs.readFile(asset.localPath);
+    const bytes = await downloadStoredAsset(asset, context);
     asset.openAiFileId = await uploadContextFile(
       record.id,
       vectorStore.id,
@@ -405,8 +374,10 @@ function parsePromptSetJson(raw: string) {
 }
 
 export async function createAssignmentFromFormData(formData: FormData) {
+  const context = await requireSessionUser();
   const assignmentId = createId("assignment");
   let vectorStoreId: string | undefined;
+  const uploadedAssets: StoredAsset[] = [];
 
   try {
     const assignmentName = cleanText(String(formData.get("assignmentName") || ""));
@@ -426,13 +397,15 @@ export async function createAssignmentFromFormData(formData: FormData) {
 
     const createdAt = isoNow();
     const rubricBytes = Buffer.from(await rubricFile.arrayBuffer());
-    const savedRubric = await saveLocalFile(
+    const rubricAsset = await uploadStoredAsset({
       assignmentId,
-      "rubric",
-      rubricFile.name,
-      rubricBytes,
-      rubricFile.type || "application/octet-stream",
-    );
+      assetType: "rubric",
+      fileName: rubricFile.name,
+      bytes: rubricBytes,
+      mimeType: rubricFile.type || "application/octet-stream",
+      context,
+    });
+    uploadedAssets.push(rubricAsset);
     const rubricText = await extractTextFromFile(rubricFile);
     const levelProfile = inferLevelProfile(level, assignmentType, rubricText);
 
@@ -469,13 +442,8 @@ export async function createAssignmentFromFormData(formData: FormData) {
       contextSummary: "",
       assets: [
         {
-          id: createId("asset"),
-          assetType: "rubric",
-          name: rubricFile.name,
-          mimeType: savedRubric.mimeType,
-          size: savedRubric.size,
-          localPath: savedRubric.localPath,
-          createdAt,
+          ...rubricAsset,
+          createdAt: rubricAsset.createdAt || createdAt,
         },
       ],
     };
@@ -489,35 +457,35 @@ export async function createAssignmentFromFormData(formData: FormData) {
       }
 
       const bytes = Buffer.from(await entry.arrayBuffer());
-      const savedReading = await saveLocalFile(
+      const readingAsset = await uploadStoredAsset({
         assignmentId,
-        "reading",
-        entry.name,
+        assetType: "reading",
+        fileName: entry.name,
         bytes,
-        entry.type || "application/octet-stream",
-      );
+        mimeType: entry.type || "application/octet-stream",
+        context,
+      });
+      uploadedAssets.push(readingAsset);
 
       record.assets.push({
-        id: createId("asset"),
-        assetType: "reading",
-        name: entry.name,
-        mimeType: savedReading.mimeType,
-        size: savedReading.size,
-        localPath: savedReading.localPath,
-        createdAt,
+        ...readingAsset,
+        createdAt: readingAsset.createdAt || createdAt,
       });
     }
 
-    await rebuildVectorStore(record);
+    await rebuildVectorStore(record, context, uploadedAssets);
     vectorStoreId = record.vectorStoreId;
-    await saveAssignment(record);
+    await saveAssignment(record, context);
 
     return record;
   } catch (error) {
-    await fs.rm(path.dirname(assignmentAssetDir(assignmentId)), {
-      recursive: true,
-      force: true,
-    });
+    for (const asset of uploadedAssets) {
+      try {
+        await deleteStoredAsset(asset, context);
+      } catch {
+        // Best effort cleanup only.
+      }
+    }
 
     if (vectorStoreId) {
       try {
@@ -535,7 +503,8 @@ export async function updateAssignmentConfig(
   assignmentId: string,
   args: { promptsJson: string; rubricJson: string },
 ) {
-  const record = await loadAssignment(assignmentId);
+  const context = await requireSessionUser();
+  const record = await loadAssignment(assignmentId, context);
   const promptSet = parsePromptSetJson(args.promptsJson);
   const rubric = normalizedRubricSchema.parse(parseJson(args.rubricJson));
   ensureRubricPromptReferences(promptSet, rubric);
@@ -546,8 +515,8 @@ export async function updateAssignmentConfig(
   record.contextSummary = buildContextSummary(record);
   record.updatedAt = isoNow();
 
-  await rebuildVectorStore(record);
-  await saveAssignment(record);
+  await rebuildVectorStore(record, context);
+  await saveAssignment(record, context);
 
   return record;
 }

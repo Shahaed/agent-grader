@@ -1,26 +1,26 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import { createAssignmentFromFormData } from "@/lib/assignment-service";
 import { listAssignmentBundles } from "@/lib/storage";
+import { getSessionUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { isAuthenticated, userId } = await auth();
+  const session = await getSessionUser();
 
-  if (!isAuthenticated || !userId) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  const assignments = await listAssignmentBundles();
+  const assignments = await listAssignmentBundles(session);
   return NextResponse.json({ assignments });
 }
 
 export async function POST(request: Request) {
-  const { isAuthenticated, userId } = await auth();
+  const session = await getSessionUser();
 
-  if (!isAuthenticated || !userId) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 

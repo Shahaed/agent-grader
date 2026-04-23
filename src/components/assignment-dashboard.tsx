@@ -39,6 +39,7 @@ type ViewState = "index" | "create" | "review";
 interface AssignmentDashboardProps {
   hasOpenAIKey: boolean;
   initialAssignments: AssignmentBundle[];
+  currentUserEmail: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1968,6 +1969,7 @@ function ReviewView({
 export function AssignmentDashboard({
   hasOpenAIKey,
   initialAssignments,
+  currentUserEmail,
 }: AssignmentDashboardProps) {
   const [assignments, setAssignments] = useState(initialAssignments);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(() =>
@@ -2268,6 +2270,7 @@ export function AssignmentDashboard({
     <DashboardShell
       activePage="assignments"
       assignments={assignments}
+      userEmail={currentUserEmail}
       hasOpenAIKey={hasOpenAIKey}
       title="Create and review written assignment context before grading."
       description="Build the assignment package once, let the model infer the prompt structure from the rubric, then inspect the normalized rubric and shared context before grading."

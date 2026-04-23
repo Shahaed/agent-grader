@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
 
 import type { AssignmentBundle } from "@/lib/types";
 import type { WorkflowPage } from "./dashboard-shared";
@@ -10,6 +9,7 @@ import type { WorkflowPage } from "./dashboard-shared";
 interface SidebarProps {
   assignments: AssignmentBundle[];
   selectedAssignmentId: string;
+  userEmail: string;
   onSelectAssignment?: (id: string) => void;
   onNewAssignment?: () => void;
 }
@@ -22,6 +22,7 @@ const navItems: Array<{ href: string; id: WorkflowPage; label: string }> = [
 export function Sidebar({
   assignments,
   selectedAssignmentId,
+  userEmail,
   onSelectAssignment,
   onNewAssignment,
 }: SidebarProps) {
@@ -164,13 +165,19 @@ export function Sidebar({
         className="mt-auto border-t px-3 py-3"
         style={{ borderColor: "var(--line)" }}
       >
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: "w-7 h-7",
-            },
-          }}
-        />
+        <div className="rounded-xl border border-line bg-paper px-3 py-3">
+          <div className="caps" style={{ color: "var(--ink-3)" }}>
+            Signed in
+          </div>
+          <div className="mt-1 truncate text-[13px]" style={{ color: "var(--ink)" }}>
+            {userEmail}
+          </div>
+          <form action="/auth/signout" method="post" className="mt-3">
+            <button type="submit" className="btn btn-secondary btn-sm w-full">
+              Sign out
+            </button>
+          </form>
+        </div>
       </div>
     </aside>
   );

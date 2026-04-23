@@ -1,369 +1,518 @@
-import os from "node:os";
-import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 
-import { normalizedRubricSchema, promptSetSchema } from "@/lib/schemas";
 import type {
   AssignmentBundle,
-  AssignmentPrompt,
   AssignmentRecord,
+  AssetType,
+  GradingFeedback,
   GradingResultRecord,
-  NormalizedRubric,
   PromptGradingResult,
+  ReviewDecision,
   StoredAsset,
 } from "@/lib/types";
-import { createId, isoNow, sumRubricScale } from "@/lib/utils";
+import { createId, isoNow, slugify } from "@/lib/utils";
+import {
+  requireSessionUser,
+  type AuthenticatedSupabaseContext,
+} from "@/lib/supabase/server";
 
-const LEGACY_DATA_ROOT = path.join(process.cwd(), ".data");
-const DEFAULT_DATA_ROOT = path.join(os.homedir(), ".agent-grader-data");
-const VERCEL_DATA_ROOT = path.join(os.tmpdir(), "agent-grader-data");
-const DATA_ROOT =
-  process.env.AGENT_GRADER_DATA_DIR ||
-  (process.env.VERCEL ? VERCEL_DATA_ROOT :
-  (existsSync(LEGACY_DATA_ROOT) && !existsSync(DEFAULT_DATA_ROOT)
-    ? LEGACY_DATA_ROOT
-    : DEFAULT_DATA_ROOT));
-const ASSIGNMENTS_ROOT = path.join(DATA_ROOT, "assignments");
+export const ASSIGNMENT_FILES_BUCKET = "assignment-files";
 
-function assignmentDir(assignmentId: string) {
-  return path.join(ASSIGNMENTS_ROOT, assignmentId);
+interface AssignmentRow {
+  id: string;
+  user_id: string;
+  assignment_name: string;
+  created_at: string;
+  updated_at: string;
+  course_profile: AssignmentRecord["courseProfile"];
+  assignment_profile: AssignmentRecord["assignmentProfile"];
+  level_profile: AssignmentRecord["levelProfile"];
+  rubric_text: string;
+  normalized_rubric: AssignmentRecord["normalizedRubric"];
+  vector_store_id: string | null;
+  context_summary: string;
 }
 
-function assignmentJsonPath(assignmentId: string) {
-  return path.join(assignmentDir(assignmentId), "assignment.json");
+interface AssignmentAssetRow {
+  id: string;
+  assignment_id: string;
+  user_id: string;
+  asset_type: AssetType;
+  name: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_bucket: string;
+  storage_path: string;
+  openai_file_id: string | null;
+  created_at: string;
 }
 
-function resultsDir(assignmentId: string) {
-  return path.join(assignmentDir(assignmentId), "results");
+interface GradingResultRow {
+  id: string;
+  assignment_id: string;
+  user_id: string;
+  source_asset_id: string;
+  submission_name: string;
+  created_at: string;
+  updated_at: string;
+  overall_score: number;
+  scale_max: number;
+  confidence: number;
+  review: ReviewDecision;
+  feedback: GradingFeedback;
+  prompt_results: PromptGradingResult[];
+  retrieval_sources: string[];
 }
 
-export function assignmentAssetDir(assignmentId: string) {
-  return path.join(assignmentDir(assignmentId), "assets");
+interface UploadStoredAssetArgs {
+  assignmentId: string;
+  assetType: AssetType;
+  fileName: string;
+  bytes: Buffer;
+  mimeType: string;
+  existingAsset?: StoredAsset;
+  assetId?: string;
+  context?: AuthenticatedSupabaseContext;
 }
 
-export async function ensureDataRoot() {
-  await fs.mkdir(ASSIGNMENTS_ROOT, { recursive: true });
-}
-
-export async function writeJson(filePath: string, data: unknown) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
-}
-
-export async function readJson<T>(filePath: string) {
-  const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw) as T;
-}
-
-function normalizeStoredAsset(asset: StoredAsset | Record<string, unknown>): StoredAsset {
-  const assetType = String(asset.assetType || "reading");
+function assignmentToRow(
+  record: AssignmentRecord,
+  userId: string,
+): AssignmentRow {
   return {
-    id: String(asset.id || createId("asset")),
-    assetType: assetType === "essay" ? "submission" : (assetType as StoredAsset["assetType"]),
-    name: String(asset.name || "asset"),
-    mimeType: String(asset.mimeType || "application/octet-stream"),
-    size: Number(asset.size || 0),
-    localPath: String(asset.localPath || ""),
-    openAiFileId:
-      typeof asset.openAiFileId === "string" ? asset.openAiFileId : undefined,
-    createdAt: String(asset.createdAt || isoNow()),
+    id: record.id,
+    user_id: userId,
+    assignment_name: record.assignmentName,
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+    course_profile: record.courseProfile,
+    assignment_profile: record.assignmentProfile,
+    level_profile: record.levelProfile,
+    rubric_text: record.rubricText,
+    normalized_rubric: record.normalizedRubric,
+    vector_store_id: record.vectorStoreId ?? null,
+    context_summary: record.contextSummary,
   };
 }
 
-function buildLegacyPrompt(rawAssignment: Record<string, unknown>): AssignmentPrompt {
-  const assignmentProfile = (rawAssignment.assignmentProfile || {}) as Record<string, unknown>;
+function assetToRow(
+  assignmentId: string,
+  userId: string,
+  asset: StoredAsset,
+): AssignmentAssetRow {
   return {
-    id: "prompt_legacy",
-    title: "Prompt 1",
-    type: "essay",
-    instructions: String(assignmentProfile.essayPrompt || "Legacy prompt"),
-    citationExpectations:
-      typeof assignmentProfile.citationExpectations === "string"
-        ? assignmentProfile.citationExpectations
-        : null,
-    maxScore: null,
-    order: 0,
+    id: asset.id,
+    assignment_id: assignmentId,
+    user_id: userId,
+    asset_type: asset.assetType,
+    name: asset.name,
+    mime_type: asset.mimeType,
+    size_bytes: asset.size,
+    storage_bucket: asset.bucket,
+    storage_path: asset.storagePath,
+    openai_file_id: asset.openAiFileId ?? null,
+    created_at: asset.createdAt,
   };
 }
 
-function normalizePromptSet(raw: Record<string, unknown>) {
-  const assignmentProfile = (raw.assignmentProfile || {}) as Record<string, unknown>;
-  const candidate = assignmentProfile.promptSet;
-
-  if (Array.isArray(candidate) && candidate.length > 0) {
-    return promptSetSchema.parse(candidate);
-  }
-
-  return [buildLegacyPrompt(raw)];
+function resultToRow(
+  assignmentId: string,
+  userId: string,
+  result: GradingResultRecord,
+): GradingResultRow {
+  return {
+    id: result.submissionId,
+    assignment_id: assignmentId,
+    user_id: userId,
+    source_asset_id: result.sourceAsset.id,
+    submission_name: result.submissionName,
+    created_at: result.createdAt,
+    updated_at: isoNow(),
+    overall_score: result.overallScore,
+    scale_max: result.scaleMax,
+    confidence: result.confidence,
+    review: result.review,
+    feedback: result.feedback,
+    prompt_results: result.promptResults,
+    retrieval_sources: result.retrievalSources,
+  };
 }
 
-function normalizeRubric(raw: Record<string, unknown>, promptSet: AssignmentPrompt[]): NormalizedRubric {
-  const candidate = (raw.normalizedRubric || {}) as Record<string, unknown>;
-  const parsed = normalizedRubricSchema.parse({
-    rubricId: candidate.rubricId || `rubric_${String(raw.id || "legacy")}`,
-    gradingMode: candidate.gradingMode || "analytic",
-    totalScaleMax: candidate.totalScaleMax || 0,
-    dimensions: Array.isArray(candidate.dimensions)
-      ? candidate.dimensions.map((dimension) => ({
-          ...dimension,
-          scope:
-            dimension && typeof dimension === "object" && "scope" in dimension
-              ? dimension.scope
-              : "global",
-          promptIds:
-            dimension && typeof dimension === "object" && "promptIds" in dimension
-              ? dimension.promptIds
-              : [],
-        }))
-      : [],
-    hardRequirements: candidate.hardRequirements || [],
-    notes: candidate.notes ?? null,
-  });
-
-  parsed.dimensions = parsed.dimensions.map((dimension) => {
-    if (dimension.scope === "prompt") {
-      const validPromptIds = dimension.promptIds.filter((promptId) =>
-        promptSet.some((prompt) => prompt.id === promptId),
-      );
-      return {
-        ...dimension,
-        promptIds: validPromptIds.length > 0 ? validPromptIds : [promptSet[0].id],
-      };
-    }
-
-    return {
-      ...dimension,
-      scope: "global",
-      promptIds: [],
-    };
-  });
-
-  parsed.totalScaleMax ||= sumRubricScale(parsed);
-  return parsed;
+function rowToAsset(row: AssignmentAssetRow): StoredAsset {
+  return {
+    id: row.id,
+    assetType: row.asset_type,
+    name: row.name,
+    mimeType: row.mime_type,
+    size: Number(row.size_bytes),
+    bucket: row.storage_bucket,
+    storagePath: row.storage_path,
+    openAiFileId: row.openai_file_id ?? undefined,
+    createdAt: row.created_at,
+  };
 }
 
-function upgradeAssignmentRecord(raw: Record<string, unknown>): AssignmentRecord {
-  const promptSet = normalizePromptSet(raw);
-  const normalizedRubric = normalizeRubric(raw, promptSet);
-
+function rowToAssignment(
+  row: AssignmentRow,
+  assets: StoredAsset[],
+): AssignmentRecord {
   return {
     schemaVersion: 2,
-    id: String(raw.id || createId("assignment")),
-    assignmentName: String(
-      raw.assignmentName ||
-        (raw.assignmentProfile as Record<string, unknown>)?.assignmentName ||
-        (raw.courseProfile as Record<string, unknown>)?.courseName ||
-        "Untitled assignment",
-    ),
-    createdAt: String(raw.createdAt || isoNow()),
-    updatedAt: String(raw.updatedAt || raw.createdAt || isoNow()),
-    courseProfile: {
-      courseName: String((raw.courseProfile as Record<string, unknown>)?.courseName || ""),
-      level: String((raw.courseProfile as Record<string, unknown>)?.level || "high_school") as AssignmentRecord["courseProfile"]["level"],
-      subject: String((raw.courseProfile as Record<string, unknown>)?.subject || ""),
-      teacherPreferences: String(
-        (raw.courseProfile as Record<string, unknown>)?.teacherPreferences || "",
-      ),
-    },
-    assignmentProfile: {
-      assignmentType: String(
-        (raw.assignmentProfile as Record<string, unknown>)?.assignmentType || "",
-      ),
-      citationExpectations: String(
-        (raw.assignmentProfile as Record<string, unknown>)?.citationExpectations || "",
-      ),
-      promptSet,
-    },
-    levelProfile: String(raw.levelProfile || "high_school_argument") as AssignmentRecord["levelProfile"],
-    rubricText: String(raw.rubricText || ""),
-    normalizedRubric,
-    vectorStoreId:
-      typeof raw.vectorStoreId === "string" ? raw.vectorStoreId : undefined,
-    contextSummary: String(raw.contextSummary || ""),
-    assets: Array.isArray(raw.assets) ? raw.assets.map((asset) => normalizeStoredAsset(asset as Record<string, unknown>)) : [],
+    id: row.id,
+    assignmentName: row.assignment_name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    courseProfile: row.course_profile,
+    assignmentProfile: row.assignment_profile,
+    levelProfile: row.level_profile,
+    rubricText: row.rubric_text,
+    normalizedRubric: row.normalized_rubric,
+    vectorStoreId: row.vector_store_id ?? undefined,
+    contextSummary: row.context_summary,
+    assets,
   };
 }
 
-function buildLegacyPromptResult(
-  assignment: AssignmentRecord,
-  raw: Record<string, unknown>,
-) {
-  const prompt = assignment.assignmentProfile.promptSet[0];
-  const feedback = (raw.feedback || {}) as Record<string, unknown>;
-
-  const promptResult: PromptGradingResult = {
-    promptId: prompt.id,
-    promptTitle: prompt.title,
-    promptType: prompt.type,
-    overallScore: Number(raw.overallScore || 0),
-    scaleMax: Number(raw.scaleMax || assignment.normalizedRubric.totalScaleMax),
-    confidence: Number(raw.confidence || 0),
-    dimensions: Array.isArray(raw.dimensions) ? (raw.dimensions as PromptGradingResult["dimensions"]) : [],
-    review: {
-      needsHumanReview: Boolean((raw.review as Record<string, unknown>)?.needsHumanReview),
-      reasons: Array.isArray((raw.review as Record<string, unknown>)?.reasons)
-        ? ((raw.review as Record<string, unknown>).reasons as string[])
-        : [],
-    },
-    feedback: {
-      teacherSummary: String(feedback.teacherSummary || ""),
-      studentFeedback: Array.isArray(feedback.studentFeedback)
-        ? (feedback.studentFeedback as string[])
-        : [],
-    },
-    segment: {
-      promptId: prompt.id,
-      promptTitle: prompt.title,
-      promptType: prompt.type,
-      answerText: "",
-      taggedAnswer: "",
-      sourceEvidenceSpans: [],
-      sourceEvidenceLookup: {},
-      evidenceLookup:
-        typeof raw.evidenceLookup === "object" && raw.evidenceLookup
-          ? (raw.evidenceLookup as Record<string, string>)
-          : {},
-      segmentationConfidence: 0,
-      isMissing: false,
-      notes: ["Legacy result migrated without explicit segmentation data."],
-    },
-    retrievalSources: Array.isArray(raw.retrievalSources)
-      ? (raw.retrievalSources as string[])
-      : [],
-  };
-
-  return promptResult;
-}
-
-function upgradeResultRecord(
-  raw: Record<string, unknown>,
-  assignment: AssignmentRecord,
+function rowToResult(
+  row: GradingResultRow,
+  assetMap: Map<string, StoredAsset>,
 ): GradingResultRecord {
-  if (raw.schemaVersion === 2 && Array.isArray(raw.promptResults)) {
-    return {
-      schemaVersion: 2,
-      submissionId: String(raw.submissionId || createId("submission")),
-      submissionName: String(raw.submissionName || "Submission"),
-      createdAt: String(raw.createdAt || isoNow()),
-      overallScore: Number(raw.overallScore || 0),
-      scaleMax: Number(raw.scaleMax || assignment.normalizedRubric.totalScaleMax),
-      confidence: Number(raw.confidence || 0),
-      promptResults: raw.promptResults as GradingResultRecord["promptResults"],
-      review: raw.review as GradingResultRecord["review"],
-      feedback: raw.feedback as GradingResultRecord["feedback"],
-      retrievalSources: Array.isArray(raw.retrievalSources)
-        ? (raw.retrievalSources as string[])
-        : [],
-      sourceAsset: normalizeStoredAsset(raw.sourceAsset as Record<string, unknown>),
-    };
-  }
+  const sourceAsset = assetMap.get(row.source_asset_id);
 
-  const feedback = (raw.feedback || {}) as Record<string, unknown>;
-  const promptResults = [buildLegacyPromptResult(assignment, raw)];
+  if (!sourceAsset) {
+    throw new Error(
+      `Missing source asset ${row.source_asset_id} for result ${row.id}.`,
+    );
+  }
 
   return {
     schemaVersion: 2,
-    submissionId: String(raw.submissionId || createId("submission")),
-    submissionName: String(raw.submissionName || "Submission"),
-    createdAt: String(raw.createdAt || isoNow()),
-    overallScore: Number(raw.overallScore || 0),
-    scaleMax: Number(raw.scaleMax || assignment.normalizedRubric.totalScaleMax),
-    confidence: Number(raw.confidence || 0),
-    promptResults,
-    review: {
-      needsHumanReview: Boolean((raw.review as Record<string, unknown>)?.needsHumanReview),
-      reasons: Array.isArray((raw.review as Record<string, unknown>)?.reasons)
-        ? ((raw.review as Record<string, unknown>).reasons as string[])
-        : [],
-    },
-    feedback: {
-      teacherSummary: String(feedback.teacherSummary || ""),
-      studentFeedback: Array.isArray(feedback.studentFeedback)
-        ? (feedback.studentFeedback as string[])
-        : [],
-    },
-    retrievalSources: Array.isArray(raw.retrievalSources)
-      ? (raw.retrievalSources as string[])
-      : [],
-    sourceAsset: normalizeStoredAsset(raw.sourceAsset as Record<string, unknown>),
+    submissionId: row.id,
+    submissionName: row.submission_name,
+    createdAt: row.created_at,
+    overallScore: Number(row.overall_score),
+    scaleMax: Number(row.scale_max),
+    confidence: Number(row.confidence),
+    promptResults: row.prompt_results,
+    review: row.review,
+    feedback: row.feedback,
+    retrievalSources: row.retrieval_sources,
+    sourceAsset,
   };
 }
 
-export async function saveAssignment(record: AssignmentRecord) {
-  await ensureDataRoot();
-  await writeJson(assignmentJsonPath(record.id), record);
+async function getContext(context?: AuthenticatedSupabaseContext) {
+  return context ?? requireSessionUser();
 }
 
-export async function loadAssignment(assignmentId: string) {
-  const raw = await readJson<Record<string, unknown>>(assignmentJsonPath(assignmentId));
-  return upgradeAssignmentRecord(raw);
+async function loadAssetRows(
+  assignmentIds: string[],
+  context?: AuthenticatedSupabaseContext,
+) {
+  if (assignmentIds.length === 0) {
+    return [] as AssignmentAssetRow[];
+  }
+
+  const { supabase } = await getContext(context);
+  const { data, error } = await supabase
+    .from("assignment_assets")
+    .select("*")
+    .in("assignment_id", assignmentIds)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []) as AssignmentAssetRow[];
 }
 
-export async function saveResult(assignmentId: string, result: GradingResultRecord) {
-  await writeJson(path.join(resultsDir(assignmentId), `${result.submissionId}.json`), result);
+async function loadResultRows(
+  assignmentIds: string[],
+  context?: AuthenticatedSupabaseContext,
+) {
+  if (assignmentIds.length === 0) {
+    return [] as GradingResultRow[];
+  }
+
+  const { supabase } = await getContext(context);
+  const { data, error } = await supabase
+    .from("grading_results")
+    .select("*")
+    .in("assignment_id", assignmentIds)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []) as GradingResultRow[];
 }
 
-export async function loadResults(assignmentId: string) {
-  await fs.mkdir(resultsDir(assignmentId), { recursive: true });
-  const assignment = await loadAssignment(assignmentId);
-  const fileNames = await fs.readdir(resultsDir(assignmentId));
-  const results = await Promise.all(
-    fileNames
-      .filter((fileName) => fileName.endsWith(".json"))
-      .map(async (fileName) => {
-        const raw = await readJson<Record<string, unknown>>(
-          path.join(resultsDir(assignmentId), fileName),
-        );
-        return upgradeResultRecord(raw, assignment);
-      }),
-  );
+function buildStoragePath(
+  userId: string,
+  assignmentId: string,
+  assetType: AssetType,
+  fileName: string,
+) {
+  const extension = path.extname(fileName).toLowerCase();
+  const basename =
+    slugify(path.basename(fileName, extension)) || assetType || "asset";
 
-  return results.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return `${userId}/${assignmentId}/${assetType}/${Date.now()}-${basename}${extension}`;
 }
 
-export async function loadAssignmentBundle(assignmentId: string): Promise<AssignmentBundle> {
-  const assignment = await loadAssignment(assignmentId);
-  const results = await loadResults(assignmentId);
+export async function uploadStoredAsset({
+  assignmentId,
+  assetType,
+  fileName,
+  bytes,
+  mimeType,
+  existingAsset,
+  assetId,
+  context,
+}: UploadStoredAssetArgs): Promise<StoredAsset> {
+  const resolvedContext = await getContext(context);
+  const storagePath =
+    existingAsset?.storagePath ??
+    buildStoragePath(resolvedContext.user.id, assignmentId, assetType, fileName);
+
+  const { error } = await resolvedContext.supabase.storage
+    .from(ASSIGNMENT_FILES_BUCKET)
+    .upload(storagePath, new Uint8Array(bytes), {
+      contentType: mimeType,
+      upsert: Boolean(existingAsset),
+    });
+
+  if (error) {
+    throw new Error(error.message);
+  }
 
   return {
-    assignment,
-    results,
+    id: existingAsset?.id ?? assetId ?? createId("asset"),
+    assetType,
+    name: fileName,
+    mimeType,
+    size: bytes.byteLength,
+    bucket: ASSIGNMENT_FILES_BUCKET,
+    storagePath,
+    openAiFileId: existingAsset?.openAiFileId,
+    createdAt: existingAsset?.createdAt ?? isoNow(),
   };
 }
 
-export async function listAssignmentBundles() {
-  await ensureDataRoot();
-  const entryNames = await fs.readdir(ASSIGNMENTS_ROOT);
-  const directoryEntries = await Promise.all(
-    entryNames.map(async (entryName) => ({
-      entryName,
-      stat: await fs.stat(path.join(ASSIGNMENTS_ROOT, entryName)),
-    })),
-  );
-  const bundles = (
-    await Promise.all(
-      directoryEntries
-        .filter((entry) => entry.stat.isDirectory())
-        .map(async (entry) => {
-          const manifestPath = assignmentJsonPath(entry.entryName);
-          if (!existsSync(manifestPath)) {
-            return null;
-          }
+export async function downloadStoredAsset(
+  asset: Pick<StoredAsset, "bucket" | "storagePath">,
+  context?: AuthenticatedSupabaseContext,
+) {
+  const { supabase } = await getContext(context);
+  const { data, error } = await supabase.storage
+    .from(asset.bucket)
+    .download(asset.storagePath);
 
-          try {
-            return await loadAssignmentBundle(entry.entryName);
-          } catch (error) {
-            console.warn(
-              `Skipping unreadable assignment directory "${entry.entryName}":`,
-              error,
-            );
-            return null;
-          }
-        }),
-    )
-  ).filter((bundle): bundle is AssignmentBundle => bundle !== null);
+  if (error) {
+    throw new Error(error.message);
+  }
 
-  return bundles.sort((left, right) =>
-    right.assignment.updatedAt.localeCompare(left.assignment.updatedAt),
+  return Buffer.from(await data.arrayBuffer());
+}
+
+export async function deleteStoredAsset(
+  asset: Pick<StoredAsset, "bucket" | "storagePath">,
+  context?: AuthenticatedSupabaseContext,
+) {
+  const { supabase } = await getContext(context);
+  const { error } = await supabase.storage
+    .from(asset.bucket)
+    .remove([asset.storagePath]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function saveAssignment(
+  record: AssignmentRecord,
+  context?: AuthenticatedSupabaseContext,
+) {
+  const resolvedContext = await getContext(context);
+  const assignmentRow = assignmentToRow(record, resolvedContext.user.id);
+
+  const { error: assignmentError } = await resolvedContext.supabase
+    .from("assignments")
+    .upsert(assignmentRow, { onConflict: "id" });
+
+  if (assignmentError) {
+    throw new Error(assignmentError.message);
+  }
+
+  if (record.assets.length === 0) {
+    return;
+  }
+
+  const assetRows = record.assets.map((asset) =>
+    assetToRow(record.id, resolvedContext.user.id, asset),
   );
+  const { error: assetError } = await resolvedContext.supabase
+    .from("assignment_assets")
+    .upsert(assetRows, { onConflict: "id" });
+
+  if (assetError) {
+    throw new Error(assetError.message);
+  }
+}
+
+export async function loadAssignment(
+  assignmentId: string,
+  context?: AuthenticatedSupabaseContext,
+) {
+  const resolvedContext = await getContext(context);
+  const { data, error } = await resolvedContext.supabase
+    .from("assignments")
+    .select("*")
+    .eq("id", assignmentId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error("Assignment not found.");
+  }
+
+  const assetRows = await loadAssetRows([assignmentId], resolvedContext);
+
+  return rowToAssignment(
+    data as AssignmentRow,
+    assetRows.map(rowToAsset),
+  );
+}
+
+export async function saveResult(
+  assignmentId: string,
+  result: GradingResultRecord,
+  context?: AuthenticatedSupabaseContext,
+) {
+  const resolvedContext = await getContext(context);
+  const sourceAssetRow = assetToRow(
+    assignmentId,
+    resolvedContext.user.id,
+    result.sourceAsset,
+  );
+  const { error: assetError } = await resolvedContext.supabase
+    .from("assignment_assets")
+    .upsert(sourceAssetRow, { onConflict: "id" });
+
+  if (assetError) {
+    throw new Error(assetError.message);
+  }
+
+  const { error: resultError } = await resolvedContext.supabase
+    .from("grading_results")
+    .upsert(resultToRow(assignmentId, resolvedContext.user.id, result), {
+      onConflict: "id",
+    });
+
+  if (resultError) {
+    throw new Error(resultError.message);
+  }
+}
+
+export async function loadResults(
+  assignmentId: string,
+  context?: AuthenticatedSupabaseContext,
+) {
+  const resolvedContext = await getContext(context);
+  const [assetRows, resultRows] = await Promise.all([
+    loadAssetRows([assignmentId], resolvedContext),
+    loadResultRows([assignmentId], resolvedContext),
+  ]);
+  const assetMap = new Map(assetRows.map((row) => [row.id, rowToAsset(row)]));
+
+  return resultRows
+    .map((row) => rowToResult(row, assetMap))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export async function loadAssignmentBundle(
+  assignmentId: string,
+  context?: AuthenticatedSupabaseContext,
+): Promise<AssignmentBundle> {
+  const resolvedContext = await getContext(context);
+  const { data, error } = await resolvedContext.supabase
+    .from("assignments")
+    .select("*")
+    .eq("id", assignmentId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error("Assignment not found.");
+  }
+
+  const [assetRows, resultRows] = await Promise.all([
+    loadAssetRows([assignmentId], resolvedContext),
+    loadResultRows([assignmentId], resolvedContext),
+  ]);
+  const assets = assetRows.map(rowToAsset);
+  const assetMap = new Map(assets.map((asset) => [asset.id, asset]));
+
+  return {
+    assignment: rowToAssignment(data as AssignmentRow, assets),
+    results: resultRows
+      .map((row) => rowToResult(row, assetMap))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+  };
+}
+
+export async function listAssignmentBundles(
+  context?: AuthenticatedSupabaseContext,
+) {
+  const resolvedContext = await getContext(context);
+  const { data, error } = await resolvedContext.supabase
+    .from("assignments")
+    .select("*")
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const assignmentRows = (data ?? []) as AssignmentRow[];
+  if (assignmentRows.length === 0) {
+    return [] as AssignmentBundle[];
+  }
+
+  const assignmentIds = assignmentRows.map((row) => row.id);
+  const [assetRows, resultRows] = await Promise.all([
+    loadAssetRows(assignmentIds, resolvedContext),
+    loadResultRows(assignmentIds, resolvedContext),
+  ]);
+
+  const assetsByAssignment = new Map<string, StoredAsset[]>();
+  for (const row of assetRows) {
+    const asset = rowToAsset(row);
+    const existing = assetsByAssignment.get(row.assignment_id) ?? [];
+    existing.push(asset);
+    assetsByAssignment.set(row.assignment_id, existing);
+  }
+
+  const resultsByAssignment = new Map<string, GradingResultRecord[]>();
+  const globalAssetMap = new Map(assetRows.map((row) => [row.id, rowToAsset(row)]));
+  for (const row of resultRows) {
+    const existing = resultsByAssignment.get(row.assignment_id) ?? [];
+    existing.push(rowToResult(row, globalAssetMap));
+    resultsByAssignment.set(row.assignment_id, existing);
+  }
+
+  return assignmentRows.map((row) => ({
+    assignment: rowToAssignment(row, assetsByAssignment.get(row.id) ?? []),
+    results: (resultsByAssignment.get(row.id) ?? []).sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt),
+    ),
+  }));
 }

@@ -80,7 +80,8 @@ export interface StoredAsset {
   name: string;
   mimeType: string;
   size: number;
-  localPath: string;
+  bucket: string;
+  storagePath: string;
   openAiFileId?: string;
   createdAt: string;
 }

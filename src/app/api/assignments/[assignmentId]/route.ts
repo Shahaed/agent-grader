@@ -1,8 +1,8 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 import { updateAssignmentConfig } from "@/lib/assignment-service";
 import { loadAssignmentBundle } from "@/lib/storage";
+import { getSessionUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +10,14 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ assignmentId: string }> },
 ) {
-  const { isAuthenticated, userId } = await auth();
+  const session = await getSessionUser();
 
-  if (!isAuthenticated || !userId) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
   const { assignmentId } = await context.params;
-  const bundle = await loadAssignmentBundle(assignmentId);
+  const bundle = await loadAssignmentBundle(assignmentId, session);
   return NextResponse.json(bundle);
 }
 
@@ -25,9 +25,9 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ assignmentId: string }> },
 ) {
-  const { isAuthenticated, userId } = await auth();
+  const session = await getSessionUser();
 
-  if (!isAuthenticated || !userId) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
@@ -46,7 +46,7 @@ export async function PATCH(
       promptsJson: body.promptsJson,
       rubricJson: body.rubricJson,
     });
-    const bundle = await loadAssignmentBundle(assignmentId);
+    const bundle = await loadAssignmentBundle(assignmentId, session);
     return NextResponse.json(bundle);
   } catch (error) {
     return NextResponse.json(

@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { Instrument_Serif } from "next/font/google";
 import { JetBrains_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import { getSiteUrl, siteConfig } from "./brand";
 import "./globals.css";
 
@@ -57,15 +56,8 @@ export default function RootLayout({
       className={`h-full antialiased ${geist.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable}`}
     >
       <body className="h-full">
-        <ClerkProvider
-          appearance={{
-            logoImageUrl: siteConfig.logoPath,
-            faviconImageUrl: siteConfig.logoPath,
-          }}
-        >
-          {children}
-          <Analytics />
-        </ClerkProvider>
+        {children}
+        <Analytics />
       </body>
     </html>
   );

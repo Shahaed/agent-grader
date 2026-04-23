@@ -1,21 +1,23 @@
-import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 
 import { AssignmentDashboard } from "@/components/assignment-dashboard";
 import { listAssignmentBundles } from "@/lib/storage";
+import { getSessionUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function AssignmentsPage() {
-  const { isAuthenticated, redirectToSignIn } = await auth();
+  const session = await getSessionUser();
 
-  if (!isAuthenticated) {
-    return redirectToSignIn();
+  if (!session?.user) {
+    redirect("/login");
   }
 
-  const assignments = await listAssignmentBundles();
+  const assignments = await listAssignmentBundles(session);
 
   return (
     <AssignmentDashboard
+      currentUserEmail={session.user.email ?? "Signed in"}
       hasOpenAIKey={Boolean(process.env.OPENAI_API_KEY)}
       initialAssignments={assignments}
     />

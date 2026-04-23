@@ -163,6 +163,7 @@ type GradingMode = "landing" | "workspace";
 interface GradingDashboardProps {
 	hasOpenAIKey: boolean;
 	initialAssignments: AssignmentBundle[];
+	currentUserEmail: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -289,6 +290,7 @@ function AssignmentPickerDialog({
 export function GradingDashboard({
 	hasOpenAIKey,
 	initialAssignments,
+	currentUserEmail,
 }: GradingDashboardProps) {
 	const [assignments, setAssignments] = useState(initialAssignments);
 	const [selectedAssignmentId, setSelectedAssignmentId] = useState(() =>
@@ -544,6 +546,7 @@ export function GradingDashboard({
 		<DashboardShell
 			activePage="grading"
 			assignments={assignments}
+			userEmail={currentUserEmail}
 			hasOpenAIKey={hasOpenAIKey}
 			title="Grade submissions"
 			description="Pick a prepared assignment, upload student work, run isolated grading passes."

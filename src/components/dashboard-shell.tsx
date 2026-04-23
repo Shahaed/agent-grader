@@ -8,6 +8,7 @@ import { Topbar } from "./topbar";
 interface DashboardShellProps {
   activePage: WorkflowPage;
   assignments: AssignmentBundle[];
+  userEmail: string;
   hasOpenAIKey: boolean;
   title: string;
   description: string;
@@ -27,6 +28,7 @@ interface DashboardShellProps {
 export function DashboardShell({
   activePage,
   assignments,
+  userEmail,
   status,
   error,
   currentTask,
@@ -47,6 +49,7 @@ export function DashboardShell({
       <Sidebar
         assignments={assignments}
         selectedAssignmentId={selectedAssignmentId}
+        userEmail={userEmail}
         onSelectAssignment={onSelectAssignment}
         onNewAssignment={onNewAssignment}
       />
