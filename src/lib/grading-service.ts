@@ -1,6 +1,6 @@
 import { zodTextFormat } from "openai/helpers/zod";
 
-import { extractTextFromFile } from "@/lib/file-text";
+import { extractTextFromBytes } from "@/lib/file-text";
 import { getOpenAIClient, models } from "@/lib/openai";
 import {
   feedbackOutputSchema,
@@ -38,6 +38,11 @@ import {
   sumRubricScale,
   uniqueStrings,
 } from "@/lib/utils";
+
+type GradingProgressHandler = (progress: {
+  label: string;
+  currentStep: number;
+}) => Promise<void> | void;
 
 function buildRetrievalFilters(assignmentId: string, courseLevel: string) {
   return {
@@ -501,28 +506,42 @@ function aggregatePromptResults(
   };
 }
 
-async function gradeSingleSubmission(
-  assignment: AssignmentRecord,
-  file: File,
-  context: AuthenticatedSupabaseContext,
-) {
-  const sourceAsset = await persistSubmissionFile(assignment.id, file, context);
-  const submissionText = await extractTextFromFile(file);
-  const submissionId = createId("submission");
+async function gradeStoredSubmissionAsset(args: {
+  assignment: AssignmentRecord;
+  sourceAsset: StoredAsset;
+  bytes: Buffer;
+  submissionId?: string;
+  context: AuthenticatedSupabaseContext;
+  onProgress?: GradingProgressHandler;
+}) {
+  const { assignment, sourceAsset, bytes, context, onProgress } = args;
+  await onProgress?.({ label: "Extracting text", currentStep: 1 });
+  const submissionText = await extractTextFromBytes(
+    sourceAsset.name,
+    bytes,
+    sourceAsset.mimeType,
+  );
+  const submissionId = args.submissionId ?? createId("submission");
+
+  await onProgress?.({ label: "Segmenting submission", currentStep: 2 });
   const segmentation = await segmentSubmission(
     assignment,
     submissionId,
-    file.name,
+    sourceAsset.name,
     submissionText,
   );
 
   const promptResults: PromptGradingResult[] = [];
-  for (const prompt of assignment.assignmentProfile.promptSet) {
+  for (const [index, prompt] of assignment.assignmentProfile.promptSet.entries()) {
     const segment = segmentation.segments.find((entry) => entry.promptId === prompt.id);
     if (!segment) {
       throw new Error(`Missing segmentation record for prompt ${prompt.title}.`);
     }
 
+    await onProgress?.({
+      label: `Grading prompt ${index + 1}/${assignment.assignmentProfile.promptSet.length}`,
+      currentStep: index + 3,
+    });
     promptResults.push(await gradePrompt(assignment, prompt, segment));
   }
 
@@ -536,7 +555,7 @@ async function gradeSingleSubmission(
   const result: GradingResultRecord = {
     schemaVersion: 2,
     submissionId,
-    submissionName: file.name,
+    submissionName: sourceAsset.name,
     createdAt: isoNow(),
     overallScore: aggregate.overallScore,
     scaleMax: aggregate.scaleMax,
@@ -551,10 +570,14 @@ async function gradeSingleSubmission(
     sourceAsset,
   };
 
+  await onProgress?.({
+    label: "Writing feedback",
+    currentStep: assignment.assignmentProfile.promptSet.length + 3,
+  });
   result.feedback = await writeFeedback({
     assignment,
     gradingResult: {
-      label: file.name,
+      label: sourceAsset.name,
       overallScore: result.overallScore,
       scaleMax: result.scaleMax,
       confidence: result.confidence,
@@ -569,8 +592,26 @@ async function gradeSingleSubmission(
     },
   });
 
+  await onProgress?.({
+    label: "Saving result",
+    currentStep: assignment.assignmentProfile.promptSet.length + 4,
+  });
   await saveResult(assignment.id, result, context);
   return result;
+}
+
+async function gradeSingleSubmission(
+  assignment: AssignmentRecord,
+  file: File,
+  context: AuthenticatedSupabaseContext,
+) {
+  const sourceAsset = await persistSubmissionFile(assignment.id, file, context);
+  return gradeStoredSubmissionAsset({
+    assignment,
+    sourceAsset,
+    bytes: sourceAsset.bytes,
+    context,
+  });
 }
 
 export async function gradeSubmissionBatch(assignmentId: string, files: File[]) {
@@ -590,6 +631,30 @@ export async function gradeSubmissionBatch(assignmentId: string, files: File[]) 
   await saveAssignment(assignment, context);
 
   return results;
+}
+
+export async function gradeStoredSubmission(args: {
+  assignmentId: string;
+  submissionId: string;
+  sourceAsset: StoredAsset;
+  bytes: Buffer;
+  context: AuthenticatedSupabaseContext;
+  onProgress?: GradingProgressHandler;
+}) {
+  const assignment = await loadAssignment(args.assignmentId, args.context);
+  const result = await gradeStoredSubmissionAsset({
+    assignment,
+    sourceAsset: args.sourceAsset,
+    bytes: args.bytes,
+    submissionId: args.submissionId,
+    context: args.context,
+    onProgress: args.onProgress,
+  });
+
+  assignment.updatedAt = isoNow();
+  await saveAssignment(assignment, args.context);
+
+  return result;
 }
 
 export async function updateResultFeedback(

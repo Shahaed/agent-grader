@@ -2,9 +2,14 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
-import type { AssignmentBundle, GradingResultRecord } from "@/lib/types";
+import type {
+	AssignmentBundle,
+	GradingBatchRecord,
+	GradingJobRecord,
+	GradingResultRecord,
+} from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
 import { DashboardShell } from "./dashboard-shell";
@@ -311,16 +316,31 @@ export function GradingDashboard({
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [fileQueue, setFileQueue] = useState<QueuedFile[]>([]);
 	const [grading, setGrading] = useState(false);
-	const [progress, setProgress] = useState({
-		step: 0,
-		total: 0,
-		label: "",
-		subStep: "",
-	});
+	const [activeBatch, setActiveBatch] = useState<GradingBatchRecord | null>(
+		null,
+	);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const selectedBundle = assignments.find(
 		(bundle) => bundle.assignment.id === selectedAssignmentId,
+	);
+	const selectedAssignmentIdForBatch = selectedBundle?.assignment.id;
+
+	const refreshAssignments = useCallback(
+		async (nextSelectedId?: string) => {
+			const response = await fetch("/api/assignments", { cache: "no-store" });
+			const payload = await readJson<{ assignments: AssignmentBundle[] }>(
+				response,
+			);
+			setAssignments(payload.assignments);
+			setSelectedAssignmentId(
+				resolveSelectedAssignmentId(
+					[nextSelectedId, selectedAssignmentId],
+					payload.assignments,
+				),
+			);
+		},
+		[selectedAssignmentId],
 	);
 
 	useEffect(() => {
@@ -330,19 +350,80 @@ export function GradingDashboard({
 		);
 	}, [selectedAssignmentId]);
 
-	async function refreshAssignments(nextSelectedId?: string) {
-		const response = await fetch("/api/assignments", { cache: "no-store" });
-		const payload = await readJson<{ assignments: AssignmentBundle[] }>(
-			response,
-		);
-		setAssignments(payload.assignments);
-		setSelectedAssignmentId(
-			resolveSelectedAssignmentId(
-				[nextSelectedId, selectedAssignmentId],
-				payload.assignments,
-			),
-		);
-	}
+	useEffect(() => {
+		if (!selectedAssignmentIdForBatch || mode !== "workspace") {
+			setActiveBatch(null);
+			return;
+		}
+
+		let cancelled = false;
+
+		async function loadOpenBatch() {
+			try {
+				const response = await fetch(
+					`/api/assignments/${selectedAssignmentIdForBatch}/batches`,
+					{ cache: "no-store" },
+				);
+				const payload = await readJson<{
+					batch: GradingBatchRecord | null;
+				}>(response);
+				if (!cancelled) {
+					setActiveBatch(payload.batch);
+				}
+			} catch {
+				if (!cancelled) {
+					setActiveBatch(null);
+				}
+			}
+		}
+
+		void loadOpenBatch();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [mode, selectedAssignmentIdForBatch]);
+
+	useEffect(() => {
+		if (!selectedAssignmentIdForBatch || !activeBatch) return;
+		if (!["queued", "running"].includes(activeBatch.status)) return;
+
+		let cancelled = false;
+		const activeBatchId = activeBatch.id;
+
+		async function pollBatch() {
+			try {
+				const response = await fetch(
+					`/api/assignments/${selectedAssignmentIdForBatch}/batches/${activeBatchId}`,
+					{ cache: "no-store" },
+				);
+				const payload = await readJson<{ batch: GradingBatchRecord }>(
+					response,
+					);
+					if (!cancelled) {
+						setActiveBatch(payload.batch);
+						await refreshAssignments(selectedAssignmentIdForBatch);
+					}
+			} catch (pollError) {
+				if (!cancelled) {
+					pushActivity(
+						"error",
+						"Refreshing grading batch",
+						pollError instanceof Error
+							? pollError.message
+							: "Could not refresh batch status.",
+					);
+				}
+			}
+		}
+
+		void pollBatch();
+		const timer = window.setInterval(pollBatch, 2500);
+		return () => {
+			cancelled = true;
+			window.clearInterval(timer);
+		};
+	}, [activeBatch, refreshAssignments, selectedAssignmentIdForBatch]);
 
 	function pushActivity(
 		kind: DiagnosticEvent["kind"],
@@ -392,11 +473,13 @@ export function GradingDashboard({
 		setMode("workspace");
 		setActiveTab("grade");
 		setFileQueue([]);
+		setActiveBatch(null);
 	}
 
 	function handleBackToLanding() {
 		setMode("landing");
 		setFileQueue([]);
+		setActiveBatch(null);
 	}
 
 	function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
@@ -420,30 +503,67 @@ export function GradingDashboard({
 
 	function handleBatchGrade() {
 		if (!selectedBundle || fileQueue.length === 0) return;
-		runTask("Grading submissions independently...", async () => {
+		runTask("Uploading submissions and starting batch...", async () => {
 			const formData = new FormData();
 			for (const qf of fileQueue) {
 				formData.append("submissionFiles", qf.file);
 			}
 			setGrading(true);
-			const total =
-				fileQueue.length *
-				(selectedBundle.assignment.assignmentProfile.promptSet.length + 2);
-			setProgress({ step: 0, total, label: "", subStep: "Starting..." });
 			try {
 				const response = await fetch(
 					`/api/assignments/${selectedBundle.assignment.id}/submissions`,
 					{ method: "POST", body: formData },
 				);
-				await readJson(response);
+				const payload = await readJson<{ batch: GradingBatchRecord }>(
+					response,
+				);
+				setActiveBatch(payload.batch);
 				await refreshAssignments(selectedBundle.assignment.id);
-				setStatus("Batch grading completed.");
-				setActiveTab("results");
+				setStatus("Batch grading started.");
 				setFileQueue([]);
 			} finally {
 				setGrading(false);
-				setProgress({ step: 0, total: 0, label: "", subStep: "" });
 			}
+		});
+	}
+
+	function handleRetryFailed() {
+		if (!selectedBundle || !activeBatch) return;
+		runTask("Retrying failed submissions...", async () => {
+			const response = await fetch(
+				`/api/assignments/${selectedBundle.assignment.id}/batches/${activeBatch.id}/retry`,
+				{ method: "POST" },
+			);
+			const payload = await readJson<{ batch: GradingBatchRecord }>(response);
+			setActiveBatch(payload.batch);
+			setStatus("Failed submissions queued for retry.");
+		});
+	}
+
+	function handleCancelBatch() {
+		if (!selectedBundle || !activeBatch) return;
+		runTask("Cancelling remaining submissions...", async () => {
+			const response = await fetch(
+				`/api/assignments/${selectedBundle.assignment.id}/batches/${activeBatch.id}/cancel`,
+				{ method: "POST" },
+			);
+			const payload = await readJson<{ batch: GradingBatchRecord }>(response);
+			setActiveBatch(payload.batch);
+			setStatus("Remaining submissions cancelled.");
+		});
+	}
+
+	function handleClearCompleted() {
+		if (!selectedBundle || !activeBatch) return;
+		runTask("Clearing completed jobs...", async () => {
+			const response = await fetch(
+				`/api/assignments/${selectedBundle.assignment.id}/batches/${activeBatch.id}/clear-completed`,
+				{ method: "POST" },
+			);
+			const payload = await readJson<{ batch: GradingBatchRecord }>(response);
+			setActiveBatch(payload.batch);
+			await refreshAssignments(selectedBundle.assignment.id);
+			setStatus("Completed jobs cleared.");
 		});
 	}
 
@@ -488,6 +608,30 @@ export function GradingDashboard({
 	}
 
 	const recentRuns = assignments.filter((b) => b.results.length > 0);
+	const batchIsActive = activeBatch
+		? ["queued", "running"].includes(activeBatch.status)
+		: false;
+	const batchFinished = activeBatch
+		? activeBatch.completedJobs + activeBatch.failedJobs + activeBatch.cancelledJobs
+		: 0;
+	const batchProgress =
+		activeBatch && activeBatch.totalJobs > 0
+			? Math.round((batchFinished / activeBatch.totalJobs) * 100)
+			: 0;
+
+	function jobStatusLabel(job: GradingJobRecord) {
+		if (job.status === "completed") return "graded · ready for review";
+		if (job.status === "failed") return job.error || "failed";
+		if (job.status === "cancelled") return "cancelled";
+		if (job.status === "running") {
+			const step =
+				job.totalSteps > 0
+					? ` · step ${Math.min(job.currentStep, job.totalSteps)}/${job.totalSteps}`
+					: "";
+			return `${job.progressLabel || "running"}${step}`;
+		}
+		return job.progressLabel || "queued";
+	}
 
 	/* ---------------------------------------------------------------- */
 	/*  Shell props                                                      */
@@ -870,7 +1014,62 @@ export function GradingDashboard({
 								</div>
 							</label>
 
-							{fileQueue.length > 0 ? (
+							{activeBatch ? (
+								<div>
+									<div
+										style={{
+											display: "flex",
+											justifyContent: "space-between",
+											gap: 12,
+											alignItems: "center",
+											marginBottom: 12,
+										}}
+									>
+										<div>
+											<div className="run-text">Batch {activeBatch.id}</div>
+											<div className="run-sub">
+												{activeBatch.completedJobs} completed ·{" "}
+												{activeBatch.failedJobs} failed ·{" "}
+												{activeBatch.cancelledJobs} cancelled
+											</div>
+										</div>
+										<span className="chip">{activeBatch.status}</span>
+									</div>
+									<div className="mini-progress" style={{ marginBottom: 14 }}>
+										<div style={{ width: `${batchProgress}%` }} />
+									</div>
+									{activeBatch.jobs.length > 0 ? (
+										<div className="run-list">
+											{activeBatch.jobs.map((job) => (
+												<div key={job.id} className="run-item">
+													<div
+														className={`run-status ${job.status === "completed" ? "done" : ""} ${job.status === "running" ? "active" : ""}`}
+													>
+														{job.status === "completed" && <IconCheck />}
+														{job.status === "failed" && "!"}
+														{job.status === "cancelled" && <IconX />}
+													</div>
+													<div>
+														<div className="run-text">{job.submissionName}</div>
+														<div className="run-sub">{jobStatusLabel(job)}</div>
+													</div>
+												</div>
+											))}
+										</div>
+									) : (
+										<div
+											style={{
+												textAlign: "center",
+												padding: "20px 10px",
+												color: "var(--ink-3)",
+												fontSize: 13,
+											}}
+										>
+											No active jobs in this batch.
+										</div>
+									)}
+								</div>
+							) : fileQueue.length > 0 ? (
 								<div className="run-list">
 									{fileQueue.map((f) => (
 										<div key={f.id} className="run-item">
@@ -918,6 +1117,7 @@ export function GradingDashboard({
 							<div
 								style={{
 									display: "flex",
+									flexWrap: "wrap",
 									justifyContent: "flex-end",
 									gap: 10,
 									paddingTop: 20,
@@ -926,20 +1126,54 @@ export function GradingDashboard({
 								<button
 									type="button"
 									className="btn-secondary"
-									disabled={grading || fileQueue.length === 0}
+									disabled={grading || batchIsActive || fileQueue.length === 0}
 									onClick={() => setFileQueue([])}
 								>
 									Clear queue
 								</button>
+								{activeBatch && activeBatch.completedJobs > 0 && (
+									<button
+										type="button"
+										className="btn-secondary"
+										disabled={isPending}
+										onClick={handleClearCompleted}
+									>
+										Clear completed
+									</button>
+								)}
+								{activeBatch && activeBatch.failedJobs > 0 && (
+									<button
+										type="button"
+										className="btn-secondary"
+										disabled={isPending || batchIsActive}
+										onClick={handleRetryFailed}
+									>
+										Retry failed
+									</button>
+								)}
+								{activeBatch && batchIsActive && (
+									<button
+										type="button"
+										className="btn-secondary"
+										disabled={isPending}
+										onClick={handleCancelBatch}
+									>
+										Cancel remaining
+									</button>
+								)}
 								<button
 									type="button"
 									className="btn-primary"
-									disabled={grading || fileQueue.length === 0 || isPending}
+									disabled={
+										grading || batchIsActive || fileQueue.length === 0 || isPending
+									}
 									onClick={handleBatchGrade}
 									style={{ minWidth: 180 }}
 								>
-									{isPending || grading ? (
-										"Grading…"
+									{grading ? (
+										"Uploading…"
+									) : batchIsActive ? (
+										"Batch running"
 									) : (
 										<>
 											Run graded batch <IconArrow />
@@ -948,25 +1182,18 @@ export function GradingDashboard({
 								</button>
 							</div>
 
-							{grading && progress.total > 0 && (
-								<div style={{ marginTop: 14 }}>
-									<div className="mini-progress">
-										<div
-											style={{
-												width: `${(progress.step / progress.total) * 100}%`,
-											}}
-										/>
-									</div>
-									<div
-										style={{
-											marginTop: 8,
-											fontSize: 12,
-											color: "var(--ink-3)",
-											fontFamily: "var(--mono)",
-										}}
-									>
-										{progress.label} · {progress.subStep}
-									</div>
+							{activeBatch && (
+								<div
+									style={{
+										marginTop: 14,
+										fontSize: 12,
+										color: "var(--ink-3)",
+										fontFamily: "var(--mono)",
+									}}
+								>
+									{batchIsActive
+										? "You can leave this page. Progress will resume here."
+										: "Batch is no longer running."}
 								</div>
 							)}
 						</div>

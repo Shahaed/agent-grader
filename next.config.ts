@@ -1,6 +1,7 @@
 import os from "node:os";
 
 import type { NextConfig } from "next";
+import { withWorkflow } from "workflow/next";
 
 function normalizeOrigin(value: string) {
   return value
@@ -30,4 +31,4 @@ const nextConfig: NextConfig = {
   allowedDevOrigins,
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);

@@ -1,5 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
-import type { SupabaseClient, User } from "@supabase/supabase-js";
+import {
+  createClient as createSupabaseClient,
+  type SupabaseClient,
+  type User,
+} from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 export interface AuthenticatedSupabaseContext {
@@ -23,6 +27,14 @@ function getSupabasePublishableKey() {
   return value;
 }
 
+function getSupabaseServiceRoleKey() {
+  const value = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!value) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY.");
+  }
+  return value;
+}
+
 export async function createClient() {
   const cookieStore = await cookies();
 
@@ -42,6 +54,22 @@ export async function createClient() {
       },
     },
   });
+}
+
+export function createServiceRoleClient() {
+  return createSupabaseClient(getSupabaseUrl(), getSupabaseServiceRoleKey(), {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+export function createServiceRoleContext(userId: string): AuthenticatedSupabaseContext {
+  return {
+    supabase: createServiceRoleClient(),
+    user: { id: userId } as User,
+  };
 }
 
 export async function getSessionUser(): Promise<AuthenticatedSupabaseContext | null> {

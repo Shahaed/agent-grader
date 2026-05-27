@@ -165,6 +165,54 @@ export interface GradingResultRecord {
   sourceAsset: StoredAsset;
 }
 
+export type GradingBatchStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type GradingJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface GradingJobRecord {
+  id: string;
+  batchId: string;
+  assignmentId: string;
+  sourceAsset: StoredAsset;
+  submissionName: string;
+  status: GradingJobStatus;
+  progressLabel: string;
+  currentStep: number;
+  totalSteps: number;
+  error: string | null;
+  retryCount: number;
+  resultId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface GradingBatchRecord {
+  id: string;
+  assignmentId: string;
+  workflowRunId: string | null;
+  status: GradingBatchStatus;
+  totalJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+  cancelledJobs: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  jobs: GradingJobRecord[];
+}
+
 export interface AssignmentBundle {
   assignment: AssignmentRecord;
   results: GradingResultRecord[];

@@ -6,10 +6,12 @@ function extensionFor(fileName: string) {
   return path.extname(fileName).toLowerCase();
 }
 
-export async function extractTextFromFile(file: File) {
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const ext = extensionFor(file.name);
-  const mimeType = file.type || "application/octet-stream";
+export async function extractTextFromBytes(
+  fileName: string,
+  bytes: Buffer,
+  mimeType = "application/octet-stream",
+) {
+  const ext = extensionFor(fileName);
 
   if (
     mimeType.startsWith("text/") ||
@@ -36,6 +38,15 @@ export async function extractTextFromFile(file: File) {
   }
 
   throw new Error(
-    `Unsupported file type for text extraction: ${file.name}. Use PDF, DOCX, TXT, MD, CSV, or JSON.`,
+    `Unsupported file type for text extraction: ${fileName}. Use PDF, DOCX, TXT, MD, CSV, or JSON.`,
+  );
+}
+
+export async function extractTextFromFile(file: File) {
+  const bytes = Buffer.from(await file.arrayBuffer());
+  return extractTextFromBytes(
+    file.name,
+    bytes,
+    file.type || "application/octet-stream",
   );
 }
