@@ -5,15 +5,19 @@ import {
   createGradingBatch,
   loadAssignment,
   loadGradingBatch,
+  markGradingBatchFailed,
   saveAssignmentAsset,
   updateGradingBatchRun,
   uploadStoredAsset,
 } from "@/lib/storage";
-import { getSessionUser } from "@/lib/supabase/server";
+import { getSessionUser, hasSupabaseServiceRoleKey } from "@/lib/supabase/server";
 import { gradeSubmissionBatchWorkflow } from "@/workflows/grade-submission-batch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+const missingWorkflowConfigError =
+  "Server configuration is missing SUPABASE_SERVICE_ROLE_KEY. Add the Supabase secret key to Vercel Production environment variables and redeploy.";
 
 export async function POST(
   request: Request,
@@ -63,13 +67,42 @@ export async function POST(
       totalSteps,
       context: session,
     });
-    const run = await start(gradeSubmissionBatchWorkflow, [
-      {
+
+    if (!hasSupabaseServiceRoleKey()) {
+      await markGradingBatchFailed({
         assignmentId,
         batchId: batch.id,
         userId: session.user.id,
-      },
-    ]);
+        error: missingWorkflowConfigError,
+        context: session,
+      });
+      const failedBatch = await loadGradingBatch(assignmentId, batch.id, session);
+      return NextResponse.json({ batch: failedBatch });
+    }
+
+    let run;
+    try {
+      run = await start(gradeSubmissionBatchWorkflow, [
+        {
+          assignmentId,
+          batchId: batch.id,
+          userId: session.user.id,
+        },
+      ]);
+    } catch (workflowError) {
+      await markGradingBatchFailed({
+        assignmentId,
+        batchId: batch.id,
+        userId: session.user.id,
+        error:
+          workflowError instanceof Error
+            ? workflowError.message
+            : "Failed to start grading workflow.",
+        context: session,
+      });
+      const failedBatch = await loadGradingBatch(assignmentId, batch.id, session);
+      return NextResponse.json({ batch: failedBatch });
+    }
 
     await updateGradingBatchRun(assignmentId, batch.id, run.runId, session);
     const queuedBatch = await loadGradingBatch(assignmentId, batch.id, session);

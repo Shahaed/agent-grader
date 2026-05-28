@@ -35,6 +35,10 @@ function getSupabaseServiceRoleKey() {
   return value;
 }
 
+export function hasSupabaseServiceRoleKey() {
+  return Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}
+
 export async function createClient() {
   const cookieStore = await cookies();
 

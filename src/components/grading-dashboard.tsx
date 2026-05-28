@@ -618,6 +618,9 @@ export function GradingDashboard({
 		activeBatch && activeBatch.totalJobs > 0
 			? Math.round((batchFinished / activeBatch.totalJobs) * 100)
 			: 0;
+	const firstBatchError =
+		activeBatch?.jobs.find((job) => job.status === "failed" && job.error)
+			?.error ?? null;
 
 	function jobStatusLabel(job: GradingJobRecord) {
 		if (job.status === "completed") return "graded · ready for review";
@@ -1034,11 +1037,27 @@ export function GradingDashboard({
 											</div>
 										</div>
 										<span className="chip">{activeBatch.status}</span>
-									</div>
-									<div className="mini-progress" style={{ marginBottom: 14 }}>
-										<div style={{ width: `${batchProgress}%` }} />
-									</div>
-									{activeBatch.jobs.length > 0 ? (
+										</div>
+										<div className="mini-progress" style={{ marginBottom: 14 }}>
+											<div style={{ width: `${batchProgress}%` }} />
+										</div>
+										{firstBatchError && (
+											<div
+												style={{
+													border: "1px solid rgba(185, 28, 28, 0.3)",
+													background: "rgba(254, 242, 242, 0.9)",
+													color: "#7f1d1d",
+													borderRadius: "var(--radius)",
+													padding: "10px 12px",
+													fontSize: 12,
+													lineHeight: 1.45,
+													marginBottom: 14,
+												}}
+											>
+												<strong>Batch error:</strong> {firstBatchError}
+											</div>
+										)}
+										{activeBatch.jobs.length > 0 ? (
 										<div className="run-list">
 											{activeBatch.jobs.map((job) => (
 												<div key={job.id} className="run-item">

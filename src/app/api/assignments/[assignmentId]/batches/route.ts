@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { loadLatestOpenGradingBatch } from "@/lib/storage";
-import { getSessionUser } from "@/lib/supabase/server";
+import {
+  loadGradingBatch,
+  loadLatestOpenGradingBatch,
+  markGradingBatchFailed,
+} from "@/lib/storage";
+import { getSessionUser, hasSupabaseServiceRoleKey } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+
+const missingWorkflowConfigError =
+  "Server configuration is missing SUPABASE_SERVICE_ROLE_KEY. Add the Supabase secret key to Vercel Production environment variables and redeploy.";
 
 export async function GET(
   _request: Request,
@@ -17,7 +24,21 @@ export async function GET(
 
   try {
     const { assignmentId } = await context.params;
-    const batch = await loadLatestOpenGradingBatch(assignmentId, session);
+    let batch = await loadLatestOpenGradingBatch(assignmentId, session);
+    if (
+      batch &&
+      !hasSupabaseServiceRoleKey() &&
+      ["queued", "running"].includes(batch.status)
+    ) {
+      await markGradingBatchFailed({
+        assignmentId,
+        batchId: batch.id,
+        userId: session.user.id,
+        error: missingWorkflowConfigError,
+        context: session,
+      });
+      batch = await loadGradingBatch(assignmentId, batch.id, session);
+    }
     return NextResponse.json({ batch });
   } catch (error) {
     return NextResponse.json(
