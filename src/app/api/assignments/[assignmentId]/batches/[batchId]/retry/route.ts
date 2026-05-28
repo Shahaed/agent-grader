@@ -3,15 +3,19 @@ import { start } from "workflow/api";
 
 import {
   loadGradingBatch,
+  markGradingBatchFailed,
   refreshGradingBatchSummary,
   retryFailedGradingJobs,
   updateGradingBatchRun,
 } from "@/lib/storage";
-import { getSessionUser } from "@/lib/supabase/server";
+import { getSessionUser, hasSupabaseServiceRoleKey } from "@/lib/supabase/server";
 import { gradeSubmissionBatchWorkflow } from "@/workflows/grade-submission-batch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+const missingWorkflowConfigError =
+  "Server configuration is missing SUPABASE_SERVICE_ROLE_KEY. Add the Supabase secret key to Vercel Production environment variables and redeploy.";
 
 export async function POST(
   _request: Request,
@@ -33,13 +37,41 @@ export async function POST(
       context: session,
     });
 
-    const run = await start(gradeSubmissionBatchWorkflow, [
-      {
+    if (!hasSupabaseServiceRoleKey()) {
+      await markGradingBatchFailed({
         assignmentId,
         batchId,
         userId: session.user.id,
-      },
-    ]);
+        error: missingWorkflowConfigError,
+        context: session,
+      });
+      const batch = await loadGradingBatch(assignmentId, batchId, session);
+      return NextResponse.json({ batch });
+    }
+
+    let run;
+    try {
+      run = await start(gradeSubmissionBatchWorkflow, [
+        {
+          assignmentId,
+          batchId,
+          userId: session.user.id,
+        },
+      ]);
+    } catch (workflowError) {
+      await markGradingBatchFailed({
+        assignmentId,
+        batchId,
+        userId: session.user.id,
+        error:
+          workflowError instanceof Error
+            ? workflowError.message
+            : "Failed to start grading workflow.",
+        context: session,
+      });
+      const batch = await loadGradingBatch(assignmentId, batchId, session);
+      return NextResponse.json({ batch });
+    }
     await updateGradingBatchRun(assignmentId, batchId, run.runId, session);
 
     const batch = await loadGradingBatch(assignmentId, batchId, session);

@@ -872,6 +872,40 @@ export async function markGradingJobFailed(args: {
   }
 }
 
+export async function markGradingBatchFailed(args: {
+  assignmentId: string;
+  batchId: string;
+  userId: string;
+  error: string;
+  context: AuthenticatedSupabaseContext;
+}) {
+  const now = isoNow();
+  const { error } = await args.context.supabase
+    .from("grading_jobs")
+    .update({
+      status: "failed",
+      progress_label: "Setup failed",
+      error_message: args.error,
+      completed_at: now,
+      updated_at: now,
+    })
+    .eq("assignment_id", args.assignmentId)
+    .eq("batch_id", args.batchId)
+    .eq("user_id", args.userId)
+    .in("status", ["queued", "running", "failed"]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  await refreshGradingBatchSummary({
+    assignmentId: args.assignmentId,
+    batchId: args.batchId,
+    userId: args.userId,
+    context: args.context,
+  });
+}
+
 export async function refreshGradingBatchSummary(args: {
   assignmentId: string;
   batchId: string;

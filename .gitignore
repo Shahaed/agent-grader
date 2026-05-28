@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /out/
+/src/app/.well-known/workflow/
 
 # production
 /build
